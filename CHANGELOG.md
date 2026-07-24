@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Renamed the public product and repository to **Codex Context for ISTM** while preserving the existing Python distribution, CLI, schema, and LaunchAgent compatibility identifiers.
+
 ## 0.2.0 — 2026-07-24
 
 - Added opt-in, existing-Codex-CLI ISTM-to-Daily and Daily-to-generated-STM workflows without a separately maintained provider API integration.

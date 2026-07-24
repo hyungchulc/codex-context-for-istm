@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "codex-istm-macos"
 version = "0.2.0"
-description = "Local macOS Codex sessions to bounded ISTM and validated model-assisted memory"
+description = "Codex Context for ISTM, a macOS-only local session context pipeline"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}

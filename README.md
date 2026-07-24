@@ -1,6 +1,8 @@
-# codex-istm-macos
+# Codex Context for ISTM
 
-`codex-istm-macos` is a small, standard-library Python pipeline for **macOS only**. Its deterministic core incrementally reads local Codex rollout JSONL session history and writes:
+> macOS-only local Codex session context pipeline
+
+**Codex Context for ISTM** is a small, standard-library Python pipeline. Its deterministic core incrementally reads local Codex rollout JSONL session history and writes:
 
 - a bounded ISTM JSONL ledger of user and assistant text records;
 - a bounded chronological Daily Markdown digest with deterministic provenance.
@@ -12,6 +14,8 @@ It handles only local Codex/GPT conversation session history. It does not read M
 This is an independent, unofficial utility. It is not affiliated with or endorsed by OpenAI or the Codex product team.
 
 Ingestion is model-independent: it reads recorded JSONL events rather than calling a model. Dated model profile observations are documented as references only in [the model workflow](docs/MODEL_WORKFLOW.md); no model is a dependency or hard-coded default.
+
+The Python distribution, import package, compatibility CLI, stored schema identifiers, and LaunchAgent labels retain their existing `codex-istm-macos` / `codex_istm` names so a public product rename does not break installs, scripts, or existing local state.
 
 ## Privacy and boundaries
 
