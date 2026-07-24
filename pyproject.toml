@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codex-istm-macos"
+version = "0.1.0"
+description = "Local macOS Codex session JSONL to bounded ISTM and Daily files"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "codex-istm-macos contributors"}]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: MacOS X",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+]
+
+[project.scripts]
+codex-istm-macos = "codex_istm.cli:main"
+
+[tool.setuptools]
+packages = ["codex_istm"]

@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+dist/
+build/
+*.egg-info/
+.venv/
+local-data/
+state.json
+state.json.lock
+istm.jsonl
+daily/
+archive/
+logs/

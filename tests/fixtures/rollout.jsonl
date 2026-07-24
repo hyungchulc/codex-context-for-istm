@@ -1,0 +1,3 @@
+{"timestamp":"2026-07-24T09:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Draft a local-only plan."}]}}
+{"timestamp":"2026-07-24T09:00:03Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Keep processing local and bounded."}]}}
+{"timestamp":"2026-07-24T09:00:04Z","type":"response_item","payload":{"type":"function_call","name":"unrelated"}}
