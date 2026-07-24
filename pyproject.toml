@@ -26,4 +26,4 @@ codex-istm-macos = "codex_istm.cli:main"
 packages = ["codex_istm"]
 
 [tool.setuptools.package-data]
-codex_istm = ["schemas/*.json"]
+codex_istm = ["policies/*.json", "schemas/*.json"]

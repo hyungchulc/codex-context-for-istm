@@ -1,0 +1,78 @@
+{
+  "execution": {
+    "derived_state_refreshes": 1,
+    "inputs": [
+      "committed_daily",
+      "current_xltm",
+      "current_ltm",
+      "current_mtm",
+      "current_stm"
+    ],
+    "mode": "one_integrated_sweep",
+    "rule": "Decide every required structured change together, then validate, audit, and rebuild derived state once."
+  },
+  "layers": {
+    "ltm": {
+      "create_tree_when": [
+        "A durable pattern, stable concern, enduring preference cluster, or long-lived capability context forms a distinct long-term axis.",
+        "A separate tree will materially improve later rereading and classification instead of letting a broad tree absorb an independent ecosystem."
+      ],
+      "object": "tree",
+      "promotion_from": "mtm",
+      "split_bias": "conservative",
+      "stores": "Durable themes and long-term classification context, excluding date-specific current chatter."
+    },
+    "mtm": {
+      "create_branch_when": [
+        "A flow remains active or repeats across STM evidence.",
+        "The current center and likely reread questions separate from existing branches.",
+        "An ongoing project, repeated interest, recurring capability, or active concern needs its own board."
+      ],
+      "object": "branch",
+      "promotion_from": "stm",
+      "split_bias": "moderate",
+      "stores": "Compressed current boards for recurring and still-live flows rather than full chronology."
+    },
+    "stm": {
+      "create_leaf_when": [
+        "The item is a named entity, episode, concrete subtopic, stable subcluster, or repeated reread question.",
+        "An exact number, deadline, source state, payment, balance, administrative route, correction, failure, or verification may change a later answer.",
+        "A branch-root body would mix materially different reread questions."
+      ],
+      "object": "leaf",
+      "promotion_from": "daily",
+      "split_bias": "active",
+      "stores": "Detailed, reproducible structured memory for meaningful one-off asks, corrections, episodic context, judgments, facts, failures, commands, and verification."
+    },
+    "xltm": {
+      "update_forest_when": [
+        "A repeated and strong long-horizon axis is needed to classify the trees below it.",
+        "An identity-level truth, persistent direction, strong preference, or active long context cannot be represented safely by the current forest."
+      ],
+      "object": "forest",
+      "promotion_from": "ltm",
+      "split_bias": "most_conservative",
+      "stores": "Identity-level truths, long-horizon anchors, strong preferences, persistent active context, and forest-wide classification authority."
+    }
+  },
+  "routing": {
+    "ambiguous_meaningful_item": "promotion_debt",
+    "child_before_parent": "forbidden",
+    "clear_meaningful_item": "write_now",
+    "generic_remainders": "emergency_quarantine_only",
+    "new_tree_chain": [
+      "update_xltm_forest_authority",
+      "create_ltm_tree",
+      "create_mtm_branch",
+      "create_stm_leaf"
+    ],
+    "same_sweep_parent_rule": "When a missing chain is clearly justified, materialize the required parent objects before their children inside the same integrated sweep."
+  },
+  "schema_version": "codex-istm-structured-policy-v1",
+  "source_dispositions": [
+    "promoted",
+    "already_covered",
+    "source_only",
+    "promotion_debt"
+  ]
+}

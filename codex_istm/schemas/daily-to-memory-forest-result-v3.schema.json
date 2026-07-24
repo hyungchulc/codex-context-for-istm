@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codex-istm integrated Daily to Memory Forest candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "stage",
+    "packet_sha256",
+    "producer",
+    "changes",
+    "dispositions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "codex-istm-model-result-v3"
+    },
+    "stage": {
+      "const": "daily_to_memory_forest"
+    },
+    "packet_sha256": {
+      "$ref": "#/$defs/hash"
+    },
+    "producer": {
+      "$ref": "#/$defs/producer"
+    },
+    "changes": {
+      "type": "array",
+      "maxItems": 24,
+      "items": {
+        "$ref": "#/$defs/change"
+      }
+    },
+    "dispositions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/disposition"
+      }
+    }
+  },
+  "$defs": {
+    "hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "layer",
+        "tree",
+        "branch",
+        "leaf"
+      ],
+      "properties": {
+        "layer": {
+          "enum": [
+            "xltm",
+            "ltm",
+            "mtm",
+            "stm"
+          ]
+        },
+        "tree": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/slug"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "branch": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/slug"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "leaf": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/slug"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "target",
+        "expected_sha256",
+        "body",
+        "source_daily_entry_ids",
+        "reason",
+        "confidence"
+      ],
+      "properties": {
+        "action": {
+          "enum": [
+            "create",
+            "replace"
+          ]
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        },
+        "expected_sha256": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/hash"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "source_daily_entry_ids": {
+          "type": "array",
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/hash"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1200
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        }
+      }
+    },
+    "disposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "daily_entry_id",
+        "status",
+        "targets",
+        "reason"
+      ],
+      "properties": {
+        "daily_entry_id": {
+          "$ref": "#/$defs/hash"
+        },
+        "status": {
+          "enum": [
+            "promoted",
+            "already_covered",
+            "source_only",
+            "promotion_debt"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/target"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1200
+        }
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "codex_cli_version",
+        "model",
+        "reasoning_effort",
+        "isolation_profile"
+      ],
+      "properties": {
+        "kind": {
+          "const": "codex_cli"
+        },
+        "codex_cli_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$"
+        },
+        "reasoning_effort": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        },
+        "isolation_profile": {
+          "const": "codex-cli-no-tools-v1"
+        }
+      }
+    }
+  }
+}

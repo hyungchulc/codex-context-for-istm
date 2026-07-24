@@ -6,11 +6,13 @@
 
 ## 0.3.0 — 2026-07-24
 
-- Replaced the companion-owned intermediate Structured output architecture with direct, receipt-verified `memory-forest --json apply-daily` and `memory-forest --json promote` transactions.
-- Added strict `daily_to_memory_forest` model-result v2 validation with bounded semantic routes and no model-selected paths, layers, operations, or Markdown.
-- Added exact Daily and promotion plan contracts, selected Daily-result provenance, strict one-object stdout validation, bounded on-disk receipt verification, and verified no-op transactions.
-- Added a Memory Forest root-bound model-state v2, cursor-last crash recovery, and fail-closed rejection of legacy v1 state and promotion results.
-- Updated CLI, LaunchAgent templates, packaged schemas, documentation, tests, and release audit for the canonical Memory Forest boundary.
+- Replaced the companion-owned intermediate Structured output architecture with direct, receipt-verified `memory-forest --json apply-daily` and `memory-forest --json apply-structured` transactions.
+- Added a bounded, hash-bound current XLTM/LTM/MTM/STM context snapshot and a packaged public policy for one integrated Structured sweep.
+- Added strict `daily_to_memory_forest` model-result v3 validation with semantic creates, exact full-body replacements, complete Daily dispositions, and no model-selected paths, deletes, moves, arbitrary operations, or cursor changes.
+- Added exact Daily and Structured Sweep plan contracts, selected Daily-result provenance, strict one-object stdout validation, bounded receipt verification, verified no-op transactions, whole-forest freshness binding, and stale-preimage rejection.
+- Added a Memory Forest root-bound model-state v2, cursor-last crash recovery, and fail-closed rejection of legacy state and result contracts.
+- Added an installed cross-repository smoke that exercises the exact Memory Forest Structured response, plan, receipt, retry, and stale-snapshot boundary.
+- Updated CLI, packaged policies and schemas, documentation, tests, and release audit for the integrated canonical Memory Forest boundary.
 
 ## 0.2.0 — 2026-07-24
 

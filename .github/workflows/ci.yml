@@ -14,3 +14,9 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 -m unittest discover -s tests -v
       - run: python3 scripts/public_release_audit.py .
+      - uses: actions/checkout@v4
+        with:
+          repository: hyungchulc/memory-forest
+          path: .memory-forest-interop
+      - run: python3 -m pip install . ./.memory-forest-interop
+      - run: python3 scripts/memory_forest_interop_smoke.py

@@ -82,7 +82,21 @@ python3 -m codex_istm run-model-workflow structured \
   --max-batches 8
 ```
 
-The Daily and promotion apply phases are mutating after model judgment and validation. The model itself cannot choose filesystem paths, layers, operations, Markdown, or cursor changes. It may return only exact source IDs and a bounded semantic route. Daily apply calls `memory-forest --json apply-daily`; promotion apply calls `memory-forest --json promote`. Both bind local state to the real Memory Forest root and its stable private `forest_id` before first invocation, then verify the exact transaction response and receipt file before advancing a bound local cursor. The files beneath `model-daily/` are immutable handoff evidence, not a second canonical memory tree.
+The Daily and Structured apply phases mutate canonical memory only after model
+judgment and deterministic validation. Daily apply calls `memory-forest --json
+apply-daily`. Before the Structured model call, deterministic code asks Memory
+Forest for bounded, hash-bound current XLTM/LTM/MTM/STM bodies. The packet also
+contains the exact public layer and structure policy that says when to create
+an STM leaf, MTM branch, LTM tree, or update the XLTM forest. The model returns one
+integrated set of semantic creates or exact full-body replacements plus one
+disposition for every Daily item. Structured apply calls `memory-forest --json
+apply-structured`.
+
+The model cannot return raw filesystem paths, delete, move, arbitrary
+operations, or cursor changes. Both stages bind local state to the real Memory
+Forest root and its stable private `forest_id`, then verify the exact response
+and receipt before advancing a bound local cursor. Files beneath
+`model-daily/` are immutable handoff evidence, not a second canonical tree.
 
 Retrieval is a separate read-only concern and must never mutate canonical memory or workflow state. This release does not add a retrieval command.
 
@@ -146,9 +160,17 @@ Separate review-only templates for model-Daily and model-Structured are included
 ```zsh
 python3 -m unittest discover -s tests -v
 python3 scripts/public_release_audit.py
+python3 -m pip install . ../memory-forest
+python3 scripts/memory_forest_interop_smoke.py
 ```
 
-The release audit checks tracked text for common private absolute-path, credential, and UUID-shaped identifier leaks. It is a guardrail, not a substitute for a human review of generated artifacts, Git history, or release archives. Read [the public-release audit](docs/PUBLIC_RELEASE_AUDIT.md) before publishing.
+The interop smoke requires a sibling checkout of Memory Forest and verifies the
+installed `structured-context` response, whole-Forest snapshot binding,
+`apply-structured` receipt idempotency, and stale-snapshot rejection. The
+release audit checks tracked text for common private absolute-path, credential,
+and UUID-shaped identifier leaks. It is a guardrail, not a substitute for a
+human review of generated artifacts, Git history, or release archives. Read
+[the public-release audit](docs/PUBLIC_RELEASE_AUDIT.md) before publishing.
 
 ## Project documents
 
@@ -163,8 +185,12 @@ The release audit checks tracked text for common private absolute-path, credenti
 ## Limitations
 
 - This is not an official Codex export API; rollout schemas are unsupported and may change. It supports only conservative message-event shapes covered by synthetic fixtures.
-- The deterministic Daily digest retains bounded excerpts. Optional model-assisted Daily and promotion content may be wrong; Memory Forest promotion does not make a claim true.
+- The deterministic Daily digest retains bounded excerpts. Optional
+  model-assisted Daily and Structured decisions may be wrong; a validated
+  transaction does not make a claim true.
 - It does not redact sensitive text, sync across devices, encrypt files, manage backups, or delete data.
 - The no-tools Codex runner reduces local side effects but does not make provider processing local or establish provider retention guarantees.
-- Canonical layout, parent creation, validation, audit, indexing, and idempotent writer receipts are owned by the separately installed Memory Forest CLI contract.
+- Canonical layout, parent-child validation, whole-sweep rollback, audit,
+  indexing, and idempotent writer receipts are owned by the separately
+  installed Memory Forest CLI contract.
 - A changed processed prefix requires deliberate operator recovery; the tool will not guess how to merge divergent history.

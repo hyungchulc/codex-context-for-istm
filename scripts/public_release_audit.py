@@ -21,7 +21,7 @@ PRIVATE_ARTIFACT_SUFFIXES = {".packet.json", ".result.json"}
 PRIVATE_OUTPUT_ROOTS = {"handoffs", "model-daily", "structured"}
 RESULT_SCHEMAS = (
     "istm-to-daily-result-v1.schema.json",
-    "daily-to-memory-forest-result-v2.schema.json",
+    "daily-to-memory-forest-result-v3.schema.json",
 )
 
 
@@ -65,23 +65,59 @@ def main() -> int:
             continue
         if schema.get("type") != "object" or schema.get("additionalProperties") is not False:
             findings.append(f"result schema is not closed at top level: codex_istm/schemas/{name}")
-        if name == "daily-to-memory-forest-result-v2.schema.json":
+        if name == "daily-to-memory-forest-result-v3.schema.json":
             properties = schema.get("properties", {})
-            promotions = properties.get("promotions", {}).get("items", {})
-            route = promotions.get("properties", {}).get("route", {})
+            definitions = schema.get("$defs", {})
+            change = definitions.get("change", {})
+            target = definitions.get("target", {})
+            disposition = definitions.get("disposition", {})
             if (
                 properties.get("schema_version", {}).get("const")
-                != "codex-istm-model-result-v2"
+                != "codex-istm-model-result-v3"
                 or properties.get("stage", {}).get("const")
                 != "daily_to_memory_forest"
-                or promotions.get("additionalProperties") is not False
-                or route.get("additionalProperties") is not False
-                or set(route.get("required", []))
-                != {"domain", "domain_title", "branch", "branch_title", "leaf"}
+                or change.get("additionalProperties") is not False
+                or target.get("additionalProperties") is not False
+                or disposition.get("additionalProperties") is not False
+                or set(target.get("required", []))
+                != {"layer", "tree", "branch", "leaf"}
+                or set(
+                    disposition.get("properties", {})
+                    .get("status", {})
+                    .get("enum", [])
+                )
+                != {
+                    "promoted",
+                    "already_covered",
+                    "source_only",
+                    "promotion_debt",
+                }
             ):
                 findings.append(
-                    "Memory Forest result schema does not freeze its v2 semantic route contract"
+                    "Memory Forest result schema does not freeze its v3 integrated target contract"
                 )
+    policy_path = (
+        ROOT
+        / "codex_istm"
+        / "policies"
+        / "integrated-structured-sweep-v1.json"
+    )
+    try:
+        structured_policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        findings.append("missing or invalid packaged Structured policy")
+    else:
+        if (
+            structured_policy.get("schema_version")
+            != "codex-istm-structured-policy-v1"
+            or set(structured_policy.get("layers", {}))
+            != {"stm", "mtm", "ltm", "xltm"}
+            or structured_policy.get("execution", {}).get("mode")
+            != "one_integrated_sweep"
+        ):
+            findings.append(
+                "packaged Structured policy does not freeze the integrated layer contract"
+            )
     if findings:
         print("public-release audit failed:", file=sys.stderr)
         print("\n".join(findings), file=sys.stderr)

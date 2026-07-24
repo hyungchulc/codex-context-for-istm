@@ -16,10 +16,16 @@ Then perform this human review:
 - Confirm the package remains macOS-only and scoped to local Codex/GPT session JSONL, with no Mail, Calendar, notification, messaging, browser, or cloud integration.
 - Confirm deterministic commands remain provider-free and that only explicit `run-model` / `run-model-workflow` invoke Codex. Review provider-processing language and no-tools runner flags against the supported Codex CLI.
 - Confirm `apply-model` and `run-model-workflow` require an explicit Memory Forest root and invoke only the configured `memory-forest` executable for canonical writes.
-- Confirm both packaged result schemas are closed, the promotion route object is closed, and the schemas are included in a clean wheel/install.
+- Confirm the active v3 Structured result schema, semantic target union, source
+  dispositions, and bundled layer/split policy are closed and included in a
+  clean wheel/install. The legacy v2 schema may remain packaged for explicit
+  rejection and historical inspection but must not be selected by the active
+  workflow.
 - Confirm licenses and dependency metadata are accurate. The Python runtime dependency set is standard-library only; the Memory Forest CLI is a separate executable dependency for model apply.
 - Run unit tests on a clean checkout and inspect the generated synthetic test artifacts only.
-- Run a clean-install integration smoke test with this package and Memory Forest installed separately, covering both `apply-daily` and `promote` receipt verification.
+- Run a clean-install integration smoke test with this package and Memory Forest
+  installed separately, covering `apply-daily`, `structured-context`, and
+  `apply-structured` receipt verification.
 - Review the diff for newly added sample text. Synthetic fixtures must never be copied from a private conversation.
 
 The audit script searches tracked text for common absolute personal paths, credential-like prefixes, UUID-shaped identifiers, private runtime artifact names, and missing or open result schemas. It cannot reliably detect every secret or sensitive phrase, recursively prove every schema closure, validate a separately installed Memory Forest executable, or prove provider behavior, so it must not be treated as proof of safety.

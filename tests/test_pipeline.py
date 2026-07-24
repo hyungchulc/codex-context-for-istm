@@ -84,8 +84,28 @@ class PipelineTests(unittest.TestCase):
             "import hashlib, json, pathlib, sys\n"
             f"trace = pathlib.Path({str(self.memory_forest_trace)!r})\n"
             "assert sys.argv[1] == '--json'\n"
-            "operation, root_raw, plan_raw = sys.argv[2:5]\n"
+            "operation, root_raw = sys.argv[2:4]\n"
             "root = pathlib.Path(root_raw)\n"
+            "if operation == 'structured-context':\n"
+            " query = sys.argv[4]\n"
+            " assert sys.argv[5:7] == ['--limit', '3']\n"
+            " body = '# Synthetic XLTM\\n'\n"
+            " document = {'body':body,'mtime_ns':1,"
+            "'route':{'branch':None,'layer':{'name':'xltm','number':1},"
+            "'leaf':None,'path':'01 xltm/XLTM.md','route_key':'xltm','tree':None},"
+            "'sha256':hashlib.sha256(body.encode('utf-8')).hexdigest(),"
+            "'size':len(body.encode('utf-8')),'title':'Synthetic XLTM'}\n"
+            " documents = [document]\n"
+            " snapshot = hashlib.sha256(json.dumps(documents, ensure_ascii=False, allow_nan=False, "
+            "sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()\n"
+            " forest_snapshot = hashlib.sha256(b'synthetic-forest').hexdigest()\n"
+            " response = {'schema_version':1,'ok':True,'operation':operation,"
+            f"'forest_id':{'f' * 32!r},'query':query,'trail_count':1,"
+            "'documents':documents,'forest_snapshot_sha256':forest_snapshot,"
+            "'snapshot_sha256':snapshot}\n"
+            " print(json.dumps(response, sort_keys=True, separators=(',', ':')))\n"
+            " raise SystemExit(0)\n"
+            "plan_raw = sys.argv[4]\n"
             "assert pathlib.Path(plan_raw) == pathlib.Path(plan_raw).resolve()\n"
             "plan = json.loads(pathlib.Path(plan_raw).read_text(encoding='utf-8'))\n"
             "transaction_id = plan['transaction_id']\n"
@@ -99,12 +119,27 @@ class PipelineTests(unittest.TestCase):
             "  target.parent.mkdir(parents=True, exist_ok=True)\n"
             "  target.write_text(json.dumps(plan, sort_keys=True) + '\\n', encoding='utf-8')\n"
             "  touched = [target.relative_to(root).as_posix()]\n"
-            " else:\n"
+            " elif operation == 'promote':\n"
             "  for item in plan['promotions']:\n"
             "   route = item['route']\n"
             "   target = root / '04 stm' / route['domain'] / route['branch'] / f\"{route['leaf']}.md\"\n"
             "   target.parent.mkdir(parents=True, exist_ok=True)\n"
             "   target.write_text(json.dumps(item, sort_keys=True) + '\\n', encoding='utf-8')\n"
+            "   touched.append(target.relative_to(root).as_posix())\n"
+            " else:\n"
+            "  assert operation == 'apply-structured'\n"
+            "  for item in plan['changes']:\n"
+            "   route = item['target']\n"
+            "   if route['layer'] == 'xltm':\n"
+            "    target = root / '01 xltm' / 'XLTM.md'\n"
+            "   elif route['layer'] == 'ltm':\n"
+            "    target = root / '02 ltm' / f\"{route['tree']}_LTM.md\"\n"
+            "   elif route['layer'] == 'mtm':\n"
+            "    target = root / '03 mtm' / route['tree'] / f\"{route['branch']}.md\"\n"
+            "   else:\n"
+            "    target = root / '04 stm' / route['tree'] / route['branch'] / f\"{route['leaf']}.md\"\n"
+            "   target.parent.mkdir(parents=True, exist_ok=True)\n"
+            "   target.write_text(item['body'], encoding='utf-8')\n"
             "   touched.append(target.relative_to(root).as_posix())\n"
             " plan_bytes = (json.dumps(plan, ensure_ascii=True, allow_nan=False, "
             "sort_keys=True, separators=(',', ':')) + '\\n').encode('utf-8')\n"
@@ -176,6 +211,59 @@ class PipelineTests(unittest.TestCase):
                 }
             ],
             "omitted": [],
+        }
+
+    def valid_structured_result(
+        self,
+        packet: dict[str, object],
+    ) -> dict[str, object]:
+        items = packet["items"]
+        assert isinstance(items, list) and items
+        target = {
+            "layer": "stm",
+            "tree": "memory-systems",
+            "branch": "deterministic-apply",
+            "leaf": "model-output-gate",
+        }
+        return {
+            "schema_version": "codex-istm-model-result-v3",
+            "stage": "daily_to_memory_forest",
+            "packet_sha256": packet["packet_sha256"],
+            "producer": {
+                "kind": "codex_cli",
+                "codex_cli_version": "codex-cli test",
+                "model": "example-model",
+                "reasoning_effort": "xhigh",
+                "isolation_profile": "codex-cli-no-tools-v1",
+            },
+            "changes": [
+                {
+                    "action": "create",
+                    "target": target,
+                    "expected_sha256": None,
+                    "body": (
+                        "# Keep model output behind a deterministic apply gate\n\n"
+                        "Parent: [[../../../03 mtm/memory-systems/deterministic-apply.md]]\n\n"
+                        "Freeze bounded source packets and validate exact result bindings.\n"
+                    ),
+                    "source_daily_entry_ids": [items[0]["daily_entry_id"]],
+                    "reason": "The source establishes a durable write-safety rule.",
+                    "confidence": "high",
+                }
+            ],
+            "dispositions": [
+                {
+                    "daily_entry_id": item["daily_entry_id"],
+                    "status": "promoted" if index == 0 else "source_only",
+                    "targets": [target] if index == 0 else [],
+                    "reason": (
+                        "Promoted into the exact changed target."
+                        if index == 0
+                        else "This bounded item adds no separate durable structured fact."
+                    ),
+                }
+                for index, item in enumerate(items)
+            ],
         }
 
     def apply_daily(self, packet_path: Path, result_path: Path, *_unused):
@@ -370,7 +458,7 @@ class PipelineTests(unittest.TestCase):
             )
         self.assertEqual(daily_json_path.read_bytes(), before)
 
-    def test_structured_candidate_promotes_through_memory_forest_cli_only(self) -> None:
+    def test_integrated_structured_candidate_applies_through_memory_forest_cli_only(self) -> None:
         packet_path, packet = self.daily_packet()
         daily_result_path = default_result_path(packet_path)
         self.write_json(daily_result_path, self.valid_daily_result(packet))
@@ -386,40 +474,22 @@ class PipelineTests(unittest.TestCase):
             self.model_daily,
             self.packets,
             self.model_state,
+            self.memory_forest,
+            str(self.memory_forest_bin),
             max_items=10,
             item_bytes=200,
             total_bytes=400,
         )
         structured_value = json.loads(structured_packet.path.read_text(encoding="utf-8"))
-        entry_id = structured_value["items"][0]["daily_entry_id"]
-        result = {
-            "schema_version": "codex-istm-model-result-v2",
-            "stage": "daily_to_memory_forest",
-            "packet_sha256": structured_value["packet_sha256"],
-            "producer": {
-                "kind": "codex_cli",
-                "codex_cli_version": "codex-cli test",
-                "model": "example-model",
-                "reasoning_effort": "xhigh",
-                "isolation_profile": "codex-cli-no-tools-v1",
-            },
-            "promotions": [
-                {
-                    "source_daily_entry_ids": [entry_id],
-                    "route": {
-                        "domain": "memory-systems",
-                        "domain_title": "Memory systems",
-                        "branch": "deterministic-apply",
-                        "branch_title": "Deterministic apply",
-                        "leaf": "model-output-gate",
-                    },
-                    "title": "Keep model output behind a deterministic apply gate",
-                    "content": "Freeze bounded source packets and validate exact result bindings before applying memory.",
-                    "confidence": "high",
-                }
-            ],
-            "omitted": [],
-        }
+        self.assertEqual(
+            structured_value["structured_policy"]["execution"]["mode"],
+            "one_integrated_sweep",
+        )
+        self.assertEqual(
+            set(structured_value["structured_policy"]["layers"]),
+            {"stm", "mtm", "ltm", "xltm"},
+        )
+        result = self.valid_structured_result(structured_value)
         result_path = default_result_path(structured_packet.path)
         self.write_json(result_path, result)
         applied = self.apply_memory_forest_result(
@@ -443,38 +513,57 @@ class PipelineTests(unittest.TestCase):
             json.loads(line)
             for line in self.memory_forest_trace.read_text(encoding="utf-8").splitlines()
         ]
-        promotion_plan = traces[-1]["plan"]
-        self.assertEqual(traces[-1]["operation"], "promote")
+        structured_plan = traces[-1]["plan"]
+        self.assertEqual(traces[-1]["operation"], "apply-structured")
         self.assertEqual(
-            set(promotion_plan),
+            set(structured_plan),
             {
                 "schema_version",
                 "forest_id",
                 "transaction_id",
                 "date",
-                "promotions",
+                "changes",
+                "dispositions",
                 "provenance",
             },
         )
         self.assertEqual(
-            set(promotion_plan["provenance"]),
-            {"packet_sha256", "result_sha256", "daily_commit_sha256s"},
+            set(structured_plan["provenance"]),
+            {
+                "packet_sha256",
+                "result_sha256",
+                "forest_snapshot_sha256",
+                "daily_commit_sha256s",
+            },
         )
         self.assertEqual(
-            set(promotion_plan["promotions"][0]),
-            {"source_daily_entry_ids", "route", "title", "content", "confidence"},
+            set(structured_plan["changes"][0]),
+            {
+                "action",
+                "target",
+                "expected_sha256",
+                "body",
+                "source_daily_entry_ids",
+                "reason",
+                "confidence",
+            },
         )
         self.assertEqual(
-            set(promotion_plan["promotions"][0]["route"]),
-            {"domain", "domain_title", "branch", "branch_title", "leaf"},
+            set(structured_plan["changes"][0]["target"]),
+            {"layer", "tree", "branch", "leaf"},
         )
         self.assertEqual(
-            promotion_plan["provenance"]["daily_commit_sha256s"],
-            [structured_value["items"][0]["daily_result_sha256"]],
+            structured_plan["provenance"]["daily_commit_sha256s"],
+            sorted(
+                {
+                    item["daily_result_sha256"]
+                    for item in structured_value["items"]
+                }
+            ),
         )
-        self.assertNotEqual(
-            promotion_plan["provenance"]["daily_commit_sha256s"],
-            structured_value["source"]["commits"],
+        self.assertEqual(
+            structured_plan["provenance"]["forest_snapshot_sha256"],
+            structured_value["forest_context"]["forest_snapshot_sha256"],
         )
         self.assertTrue(
             self.apply_memory_forest_result(
@@ -483,7 +572,7 @@ class PipelineTests(unittest.TestCase):
             ).already_applied
         )
 
-        result["promotions"][0]["path"] = "../escape"
+        result["changes"][0]["path"] = "../escape"
         self.write_json(self.root / "unsafe-structured.json", result)
         with self.assertRaises(ISTMError):
             self.apply_memory_forest_result(
@@ -491,7 +580,7 @@ class PipelineTests(unittest.TestCase):
                 self.root / "unsafe-structured.json",
             )
 
-    def test_structured_validation_matches_memory_forest_parent_title_contract(self) -> None:
+    def test_structured_validation_enforces_layer_target_shapes(self) -> None:
         packet_path, packet = self.daily_packet()
         items = packet["items"]
         assert isinstance(items, list) and len(items) >= 2
@@ -515,48 +604,34 @@ class PipelineTests(unittest.TestCase):
             self.model_daily,
             self.packets,
             self.model_state,
+            self.memory_forest,
+            str(self.memory_forest_bin),
         )
         prepared_value = json.loads(prepared.path.read_text(encoding="utf-8"))
         daily_entries = prepared_value["items"]
         assert isinstance(daily_entries, list) and len(daily_entries) == 2
-        result = {
-            "schema_version": "codex-istm-model-result-v2",
-            "stage": "daily_to_memory_forest",
-            "packet_sha256": prepared_value["packet_sha256"],
-            "producer": {
-                "kind": "codex_cli",
-                "codex_cli_version": "codex-cli test",
-                "model": "example-model",
-                "reasoning_effort": "xhigh",
-                "isolation_profile": "codex-cli-no-tools-v1",
-            },
-            "promotions": [
-                {
-                    "source_daily_entry_ids": [item["daily_entry_id"]],
-                    "route": {
-                        "domain": "memory-systems",
-                        "domain_title": domain_title,
-                        "branch": f"branch-{index}",
-                        "branch_title": f"Branch {index}",
-                        "leaf": f"leaf-{index}",
-                    },
-                    "title": f"Synthetic promotion {index}",
-                    "content": "A bounded synthetic promotion.",
-                    "confidence": "high",
-                }
-                for index, (item, domain_title) in enumerate(
-                    zip(daily_entries, ("Memory systems", "Conflicting title")),
-                    start=1,
-                )
-            ],
-            "omitted": [],
-        }
+        result = self.valid_structured_result(prepared_value)
+        target = result["changes"][0]["target"]
+        target.update(
+            {
+                "layer": "ltm",
+                "tree": "memory-systems",
+                "branch": None,
+                "leaf": None,
+            }
+        )
+        result["dispositions"][0]["targets"] = [target]
         result_path = default_result_path(prepared.path)
         self.write_json(result_path, result)
-        with self.assertRaisesRegex(ISTMError, "conflicting titles"):
+        validate_result(prepared.path, result_path)
+        result["changes"][0]["target"]["branch"] = "not-allowed-on-ltm"
+        self.write_json(result_path, result)
+        with self.assertRaisesRegex(ISTMError, "unsafe target"):
             validate_result(prepared.path, result_path)
-        result["promotions"][1]["route"]["domain_title"] = "Memory systems"
-        result["promotions"][1]["route"]["branch_title"] = "Bad\tTitle"
+        target = result["changes"][0]["target"]
+        target["branch"] = None
+        target["domain"] = target.pop("tree")
+        result["dispositions"][0]["targets"] = [target]
         self.write_json(result_path, result)
         with self.assertRaisesRegex(ISTMError, "unsafe target"):
             validate_result(prepared.path, result_path)
@@ -826,7 +901,7 @@ class PipelineTests(unittest.TestCase):
                 self.model_state,
             )
 
-    def test_all_omitted_promotion_closes_with_verified_noop_receipt(self) -> None:
+    def test_all_source_only_structured_items_close_with_verified_noop_receipt(self) -> None:
         packet_path, packet = self.daily_packet()
         daily_result_path = default_result_path(packet_path)
         self.write_json(daily_result_path, self.valid_daily_result(packet))
@@ -836,11 +911,13 @@ class PipelineTests(unittest.TestCase):
             self.model_daily,
             self.packets,
             self.model_state,
+            self.memory_forest,
+            str(self.memory_forest_bin),
         )
         value = json.loads(prepared.path.read_text(encoding="utf-8"))
         entry_ids = [item["daily_entry_id"] for item in value["items"]]
         result = {
-            "schema_version": "codex-istm-model-result-v2",
+            "schema_version": "codex-istm-model-result-v3",
             "stage": "daily_to_memory_forest",
             "packet_sha256": value["packet_sha256"],
             "producer": {
@@ -850,9 +927,14 @@ class PipelineTests(unittest.TestCase):
                 "reasoning_effort": "xhigh",
                 "isolation_profile": "codex-cli-no-tools-v1",
             },
-            "promotions": [],
-            "omitted": [
-                {"daily_entry_id": entry_id, "reason": "not_durable"}
+            "changes": [],
+            "dispositions": [
+                {
+                    "daily_entry_id": entry_id,
+                    "status": "source_only",
+                    "targets": [],
+                    "reason": "The item does not establish a durable structured fact.",
+                }
                 for entry_id in entry_ids
             ],
         }
@@ -870,6 +952,8 @@ class PipelineTests(unittest.TestCase):
                 self.model_daily,
                 self.packets,
                 self.model_state,
+                self.memory_forest,
+                str(self.memory_forest_bin),
             )
 
     def test_legacy_v1_model_state_and_structured_result_fail_closed(self) -> None:
@@ -905,6 +989,8 @@ class PipelineTests(unittest.TestCase):
             self.model_daily,
             self.packets,
             self.model_state,
+            self.memory_forest,
+            str(self.memory_forest_bin),
         )
         memory_value = json.loads(memory_packet.path.read_text(encoding="utf-8"))
         legacy_result = {
@@ -1096,11 +1182,23 @@ class PipelineTests(unittest.TestCase):
         schema_root = files("codex_istm").joinpath("schemas")
         for name in (
             "istm-to-daily-result-v1.schema.json",
-            "daily-to-memory-forest-result-v2.schema.json",
+            "daily-to-memory-forest-result-v3.schema.json",
         ):
             schema = json.loads(schema_root.joinpath(name).read_text(encoding="utf-8"))
             self.assertEqual(schema["type"], "object")
             self.assertFalse(schema["additionalProperties"])
+        policy = json.loads(
+            files("codex_istm")
+            .joinpath("policies")
+            .joinpath("integrated-structured-sweep-v1.json")
+            .read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            policy["schema_version"],
+            "codex-istm-structured-policy-v1",
+        )
+        self.assertEqual(policy["execution"]["mode"], "one_integrated_sweep")
+        self.assertEqual(set(policy["layers"]), {"stm", "mtm", "ltm", "xltm"})
 
     def test_memory_forest_apply_rejects_new_daily_commit_after_prepare(self) -> None:
         ingest(self.sources, self.state, self.istm)
@@ -1126,28 +1224,11 @@ class PipelineTests(unittest.TestCase):
             self.model_daily,
             self.packets,
             self.model_state,
+            self.memory_forest,
+            str(self.memory_forest_bin),
         )
         structured_value = json.loads(structured_packet.path.read_text(encoding="utf-8"))
-        entry_id = structured_value["items"][0]["daily_entry_id"]
-        structured_result = {
-            "schema_version": "codex-istm-model-result-v2",
-            "stage": "daily_to_memory_forest",
-            "packet_sha256": structured_value["packet_sha256"],
-            "producer": {
-                "kind": "codex_cli",
-                "codex_cli_version": "codex-cli test",
-                "model": "example-model",
-                "reasoning_effort": "xhigh",
-                "isolation_profile": "codex-cli-no-tools-v1",
-            },
-            "promotions": [],
-            "omitted": [
-                {
-                    "daily_entry_id": entry_id,
-                    "reason": "not_durable",
-                }
-            ],
-        }
+        structured_result = self.valid_structured_result(structured_value)
         structured_result_path = default_result_path(structured_packet.path)
         self.write_json(structured_result_path, structured_result)
 

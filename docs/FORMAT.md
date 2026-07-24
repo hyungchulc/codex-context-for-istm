@@ -38,29 +38,34 @@ admission cursor, policy/schema hashes, explicit bounds, bounded items,
 
 Daily items contain exact ISTM record IDs and bounded text. Memory Forest items
 contain a Daily entry ID, the canonical Daily result SHA-256 that committed that
-entry, and a bounded summary. The packet source retains the complete ordered
-local Daily marker-hash list solely for freshness rebinding. Paths are never
-included.
+entry, and a bounded summary. A Structured packet additionally contains
+bounded, hash-bound current XLTM/LTM/MTM/STM documents, per-source route
+bindings, and the exact `codex-istm-structured-policy-v1` layer and split
+contract. The packet source retains the complete ordered local Daily
+marker-hash list for freshness rebinding.
 
 ## Model results
 
 ISTM-to-Daily remains `codex-istm-model-result-v1`. It contains grouped
 `entries` with exact `source_record_ids` and `summary`, plus explicit omissions.
 
-Daily-to-Memory-Forest is `codex-istm-model-result-v2` with stage
-`daily_to_memory_forest`. Each promotion contains exactly:
+Daily-to-Memory-Forest is `codex-istm-model-result-v3` with stage
+`daily_to_memory_forest`. Each Structured change contains exactly:
 
+- `action`, either `create` or `replace`;
+- `target`, the closed semantic layer/tree/branch/leaf union;
+- `expected_sha256`, null for create or the exact frozen preimage for replace;
+- `body`, complete validator-ready Markdown;
 - `source_daily_entry_ids`;
-- `route` with `domain`, `domain_title`, `branch`, `branch_title`, and `leaf`;
-- `title`;
-- `content`;
+- `reason`;
 - `confidence`.
 
-Route slugs are lowercase ASCII kebab-case. Titles are bounded single-line NFC
-text. Routes must be unique within a result. The result contains no filesystem
-path, layer, operation, Markdown, state change, or commit instruction. Every
-admitted input ID appears exactly once across the included/promoted and omitted
-lists. Unknown, repeated, or missing IDs fail validation.
+Every admitted input also appears exactly once in `dispositions` as
+`promoted`, `already_covered`, `source_only`, or `promotion_debt`. Targets are
+unique, and target slugs are lowercase ASCII kebab-case. The result contains no
+raw filesystem path, delete, move, arbitrary operation, state change, or commit
+instruction. Unknown, repeated, or missing IDs and stale replace preimages fail
+validation.
 
 Both result versions include exact packet binding and producer provenance:
 Codex CLI version, explicit model, explicit reasoning effort, and isolation
@@ -93,41 +98,60 @@ Daily apply writes a private temporary JSON object with fields exactly:
 Deterministic code passes that file to
 `memory-forest --json apply-daily ROOT PLAN`.
 
-## Memory Forest promotion plan v1
+## Memory Forest Structured sweep plan v1
 
-Promotion apply writes a private temporary JSON object with fields exactly:
+Structured apply writes a private temporary JSON object with fields exactly:
 
 ```json
 {
-  "schema_version": "memory-forest-promotion-plan-v1",
+  "schema_version": "memory-forest-structured-sweep-plan-v1",
   "transaction_id": "<model-result-sha256>",
   "date": "2026-07-24",
-  "promotions": [
+  "changes": [
     {
-      "source_daily_entry_ids": ["<sha256>"],
-      "route": {
-        "domain": "memory-systems",
-        "domain_title": "Memory systems",
+      "action": "create",
+      "target": {
+        "layer": "stm",
+        "tree": "memory-systems",
         "branch": "deterministic-apply",
-        "branch_title": "Deterministic apply",
         "leaf": "model-output-gate"
       },
-      "title": "Deterministic apply gate",
-      "content": "Validated semantic content.",
+      "expected_sha256": null,
+      "body": "# Deterministic apply gate\n",
+      "source_daily_entry_ids": ["<sha256>"],
+      "reason": "Durable write safety rule.",
       "confidence": "high"
+    }
+  ],
+  "dispositions": [
+    {
+      "daily_entry_id": "<sha256>",
+      "status": "promoted",
+      "targets": [
+        {
+          "layer": "stm",
+          "tree": "memory-systems",
+          "branch": "deterministic-apply",
+          "leaf": "model-output-gate"
+        }
+      ],
+      "reason": "Promoted into the exact changed target."
     }
   ],
   "provenance": {
     "packet_sha256": "<sha256>",
     "result_sha256": "<sha256>",
+    "forest_snapshot_sha256": "<sha256>",
     "daily_commit_sha256s": ["<daily-result-sha256>"]
   }
 }
 ```
 
 `daily_commit_sha256s` is the sorted unique set of committed Daily result hashes
-for actually promoted source IDs. The complete local marker list remains in the
-packet source and is not substituted into this field.
+for every disposed source ID. `forest_snapshot_sha256` binds every current
+XLTM/LTM/MTM/STM path and content hash. The packet separately binds the bounded
+bodies selected for model review and their source routes. The complete local
+marker list remains in the packet source as another freshness boundary.
 
 ## Writer response and receipt
 
@@ -135,7 +159,7 @@ Writer stdout must be one bounded JSON object with fields exactly:
 
 - integer `schema_version: 1`;
 - `ok: true`;
-- `operation`: `apply-daily` or `promote`;
+- `operation`: `apply-daily` or `apply-structured`;
 - exact 64-lowerhex `transaction_id`;
 - Boolean `already_applied`;
 - exact relative receipt path
@@ -162,7 +186,7 @@ model-daily/YYYY-MM-DD/
 
 The v2 Daily commit marker is written only after `apply-daily` receipt
 verification. It binds JSON, Markdown, exact plan hash, transaction, receipt
-path, and receipt hash. Promotion preparation accepts only fully verified
+path, and receipt hash. Structured preparation accepts only fully verified
 markers and referenced evidence. This package does not create a second
 structured-memory output tree.
 
@@ -179,4 +203,4 @@ Each date stores its timezone, every input ID accounted by verified writer
 transactions, and applied transaction IDs. The root and identity binding is durably saved
 before the first writer invocation; each per-date cursor advances only after its
 receipt verifies. Legacy v1 state fails closed because its old structured cursor
-cannot prove canonical promotion.
+cannot prove canonical whole-sweep completion.

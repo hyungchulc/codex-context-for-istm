@@ -113,6 +113,8 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_structured.add_argument("--model-daily-dir", type=Path, default=default_data_dir() / "model-daily")
     prepare_structured.add_argument("--packet-dir", type=Path, default=default_data_dir() / "handoffs")
     prepare_structured.add_argument("--model-state", type=Path, default=default_data_dir() / "model-state.json")
+    prepare_structured.add_argument("--memory-forest-root", type=Path, required=True)
+    prepare_structured.add_argument("--memory-forest-bin", default="memory-forest")
     _add_packet_bounds(prepare_structured)
     run_model = subparsers.add_parser(
         "run-model",
@@ -209,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.model_daily_dir,
                 args.packet_dir,
                 args.model_state,
+                args.memory_forest_root,
+                args.memory_forest_bin,
                 args.timezone,
                 args.max_items,
                 args.item_bytes,
@@ -275,6 +279,8 @@ def main(argv: list[str] | None = None) -> int:
                             args.model_daily_dir,
                             args.packet_dir,
                             args.model_state,
+                            args.memory_forest_root,
+                            args.memory_forest_bin,
                             args.timezone,
                             args.max_items,
                             args.item_bytes,
