@@ -11,13 +11,13 @@ jobs:
   test:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - run: python3 -m unittest discover -s tests -v
       - run: python3 scripts/public_release_audit.py .
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: hyungchulc/memory-forest
           path: .memory-forest-interop
