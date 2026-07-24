@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codex-istm-macos"
-version = "0.1.0"
-description = "Local macOS Codex session JSONL to bounded ISTM and Daily files"
+version = "0.2.0"
+description = "Local macOS Codex sessions to bounded ISTM and validated model-assisted memory"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
@@ -24,3 +24,6 @@ codex-istm-macos = "codex_istm.cli:main"
 
 [tool.setuptools]
 packages = ["codex_istm"]
+
+[tool.setuptools.package-data]
+codex_istm = ["schemas/*.json"]

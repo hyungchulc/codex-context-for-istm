@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.github.codex-istm-macos.model-daily</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@PYTHON@</string>
+    <string>-m</string>
+    <string>codex_istm</string>
+    <string>run-model-workflow</string>
+    <string>daily</string>
+    <string>--date</string>
+    <string>previous-local-day</string>
+    <string>--timezone</string>
+    <string>@TIMEZONE@</string>
+    <string>--istm</string>
+    <string>@DATA_DIR@/istm.jsonl</string>
+    <string>--packet-dir</string>
+    <string>@DATA_DIR@/handoffs</string>
+    <string>--model-state</string>
+    <string>@DATA_DIR@/model-state.json</string>
+    <string>--model-daily-dir</string>
+    <string>@DATA_DIR@/model-daily</string>
+    <string>--structured-dir</string>
+    <string>@DATA_DIR@/structured</string>
+    <string>--codex-bin</string>
+    <string>@CODEX_BIN@</string>
+    <string>--model</string>
+    <string>@MODEL@</string>
+    <string>--reasoning-effort</string>
+    <string>@REASONING_EFFORT@</string>
+    <string>--max-batches</string>
+    <string>8</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>@PROJECT_ROOT@</string>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>1</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>@DATA_DIR@/logs/model-daily.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>@DATA_DIR@/logs/model-daily.err.log</string>
+</dict>
+</plist>

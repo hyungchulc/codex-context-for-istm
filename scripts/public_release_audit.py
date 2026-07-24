@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import re
 import subprocess
 import sys
@@ -15,12 +16,19 @@ PATTERNS = (
     re.compile("s" + "k" + "-[A-Za-z0-9]{16,}"),
     re.compile(r"(?i)\b[0-9a-f]{8}" + "-" + r"[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"),
 )
+PRIVATE_ARTIFACT_NAMES = {"model-state.json", "state.json", "istm.jsonl"}
+PRIVATE_ARTIFACT_SUFFIXES = {".packet.json", ".result.json"}
+PRIVATE_OUTPUT_ROOTS = {"handoffs", "model-daily", "structured"}
+RESULT_SCHEMAS = (
+    "istm-to-daily-result-v1.schema.json",
+    "daily-to-structured-result-v1.schema.json",
+)
 
 
 def tracked_or_present_files() -> list[Path]:
     result = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, check=False)
     tracked = [ROOT / item for item in result.stdout.decode("utf-8", errors="replace").split("\0") if item]
-    candidates = tracked or list(ROOT.rglob("*"))
+    candidates = set(tracked) | set(ROOT.rglob("*"))
     return sorted(
         path
         for path in candidates
@@ -31,6 +39,13 @@ def tracked_or_present_files() -> list[Path]:
 def main() -> int:
     findings: list[str] = []
     for path in tracked_or_present_files():
+        relative = path.relative_to(ROOT)
+        if (
+            path.name in PRIVATE_ARTIFACT_NAMES
+            or any(path.name.endswith(suffix) for suffix in PRIVATE_ARTIFACT_SUFFIXES)
+            or (relative.parts and relative.parts[0] in PRIVATE_OUTPUT_ROOTS)
+        ):
+            findings.append(f"private runtime artifact is tracked: {relative}")
         try:
             contents = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
@@ -40,6 +55,16 @@ def main() -> int:
             if pattern.search(contents):
                 findings.append(f"possible private data pattern: {path.relative_to(ROOT)}")
                 break
+    schema_root = ROOT / "codex_istm" / "schemas"
+    for name in RESULT_SCHEMAS:
+        path = schema_root / name
+        try:
+            schema = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            findings.append(f"missing or invalid packaged result schema: codex_istm/schemas/{name}")
+            continue
+        if schema.get("type") != "object" or schema.get("additionalProperties") is not False:
+            findings.append(f"result schema is not closed at top level: codex_istm/schemas/{name}")
     if findings:
         print("public-release audit failed:", file=sys.stderr)
         print("\n".join(findings), file=sys.stderr)

@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codex-istm Daily to Structured candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "stage",
+    "packet_sha256",
+    "producer",
+    "promotions",
+    "omitted"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "codex-istm-model-result-v1"
+    },
+    "stage": {
+      "const": "daily_to_structured"
+    },
+    "packet_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "producer": {
+      "$ref": "#/$defs/producer"
+    },
+    "promotions": {
+      "type": "array",
+      "maxItems": 24,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_daily_entry_ids",
+          "title",
+          "content",
+          "confidence"
+        ],
+        "properties": {
+          "source_daily_entry_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2400
+          },
+          "confidence": {
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        }
+      }
+    },
+    "omitted": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "daily_entry_id",
+          "reason"
+        ],
+        "properties": {
+          "daily_entry_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "reason": {
+            "enum": [
+              "not_durable",
+              "redundant",
+              "sensitive",
+              "insufficient_context"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "codex_cli_version",
+        "model",
+        "reasoning_effort",
+        "isolation_profile"
+      ],
+      "properties": {
+        "kind": {
+          "const": "codex_cli"
+        },
+        "codex_cli_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$"
+        },
+        "reasoning_effort": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        },
+        "isolation_profile": {
+          "const": "codex-cli-no-tools-v1"
+        }
+      }
+    }
+  }
+}
