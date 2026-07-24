@@ -7,7 +7,9 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
+import codex_istm.model_workflow as model_workflow
 from codex_istm.core import (
     ISTMError,
     SourceMutationError,
@@ -20,10 +22,10 @@ from codex_istm.core import (
 from codex_istm.model_workflow import (
     NoWorkError,
     apply_daily_result,
-    apply_structured_result,
+    apply_memory_forest_result,
     default_result_path,
     prepare_daily_packet,
-    prepare_structured_packet,
+    prepare_memory_forest_packet,
     run_codex_model,
     validate_result,
 )
@@ -45,7 +47,89 @@ class PipelineTests(unittest.TestCase):
         self.daily = self.root / "daily"
         self.packets = self.root / "handoffs"
         self.model_daily = self.root / "model-daily"
-        self.structured = self.root / "structured"
+        self.memory_forest = self.root / "memory-forest"
+        self.memory_forest.mkdir()
+        self.memory_forest.chmod(0o700)
+        self.forest_id = "f" * 32
+        memory_forest_state = self.memory_forest / ".memory-forest"
+        memory_forest_state.mkdir(mode=0o700)
+        memory_forest_config = memory_forest_state / "forest.json"
+        memory_forest_config.write_text(
+            json.dumps(
+                {
+                    "forest_id": self.forest_id,
+                    "layout": "layer/domain/branch/leaf",
+                    "layers": [
+                        "00 life_archive",
+                        "01 xltm",
+                        "02 ltm",
+                        "03 mtm",
+                        "04 stm",
+                        "05 daily",
+                        "06 istm",
+                    ],
+                    "schema_version": 1,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        memory_forest_config.chmod(0o600)
+        self.memory_forest_trace = self.root / "memory-forest-trace.jsonl"
+        self.memory_forest_bin = self.root / "fake-memory-forest"
+        self.memory_forest_bin.write_text(
+            "#!/usr/bin/env python3\n"
+            "import hashlib, json, pathlib, sys\n"
+            f"trace = pathlib.Path({str(self.memory_forest_trace)!r})\n"
+            "assert sys.argv[1] == '--json'\n"
+            "operation, root_raw, plan_raw = sys.argv[2:5]\n"
+            "root = pathlib.Path(root_raw)\n"
+            "assert pathlib.Path(plan_raw) == pathlib.Path(plan_raw).resolve()\n"
+            "plan = json.loads(pathlib.Path(plan_raw).read_text(encoding='utf-8'))\n"
+            "transaction_id = plan['transaction_id']\n"
+            "receipt = root / '.memory-forest' / 'receipts' / f'{transaction_id}.json'\n"
+            "already_applied = receipt.exists()\n"
+            "touched = []\n"
+            "if not already_applied:\n"
+            " receipt.parent.mkdir(parents=True, exist_ok=True)\n"
+            " if operation == 'apply-daily':\n"
+            "  target = root / '05 daily' / f\"{plan['date']}.md\"\n"
+            "  target.parent.mkdir(parents=True, exist_ok=True)\n"
+            "  target.write_text(json.dumps(plan, sort_keys=True) + '\\n', encoding='utf-8')\n"
+            "  touched = [target.relative_to(root).as_posix()]\n"
+            " else:\n"
+            "  for item in plan['promotions']:\n"
+            "   route = item['route']\n"
+            "   target = root / '04 stm' / route['domain'] / route['branch'] / f\"{route['leaf']}.md\"\n"
+            "   target.parent.mkdir(parents=True, exist_ok=True)\n"
+            "   target.write_text(json.dumps(item, sort_keys=True) + '\\n', encoding='utf-8')\n"
+            "   touched.append(target.relative_to(root).as_posix())\n"
+            " plan_bytes = (json.dumps(plan, ensure_ascii=True, allow_nan=False, "
+            "sort_keys=True, separators=(',', ':')) + '\\n').encode('utf-8')\n"
+            " receipt_value = {'schema_version':'memory-forest-write-receipt-v1',"
+            "'forest_id':plan['forest_id'],'ok':True,'operation':operation,"
+            "'transaction_id':transaction_id,"
+            "'plan_sha256':hashlib.sha256(plan_bytes).hexdigest(),'date':plan['date'],"
+            "'touched':sorted(touched),"
+            "'validation':{'ok':True,'documents':1,'errors':0,'warnings':0},"
+            "'audit':{'ok':True,'documents':1,'errors':0,'warnings':0,'links':0},"
+            "'index':{'bytes_indexed':1,'documents':1,"
+            "'index':'.memory-forest/index.sqlite3'}}\n"
+            " receipt.write_text(json.dumps(receipt_value, sort_keys=True, separators=(',', ':')) + '\\n', encoding='utf-8')\n"
+            "with trace.open('a', encoding='utf-8') as handle:\n"
+            " handle.write(json.dumps({'operation':operation,'plan':plan}, sort_keys=True) + '\\n')\n"
+            "raw = receipt.read_bytes()\n"
+            "response = {'schema_version':1,'ok':True,'operation':operation,"
+            "'forest_id':plan['forest_id'],"
+            "'transaction_id':transaction_id,'already_applied':already_applied,"
+            "'receipt':f'.memory-forest/receipts/{transaction_id}.json',"
+            "'receipt_sha256':hashlib.sha256(raw).hexdigest(),'touched':sorted(touched)}\n"
+            "print(json.dumps(response, sort_keys=True, separators=(',', ':')))\n",
+            encoding="utf-8",
+        )
+        self.memory_forest_bin.chmod(0o700)
         self.model_state = self.root / "model-state.json"
 
     def tearDown(self) -> None:
@@ -93,6 +177,27 @@ class PipelineTests(unittest.TestCase):
             ],
             "omitted": [],
         }
+
+    def apply_daily(self, packet_path: Path, result_path: Path, *_unused):
+        return apply_daily_result(
+            packet_path,
+            result_path,
+            self.istm,
+            self.model_state,
+            self.model_daily,
+            self.memory_forest,
+            str(self.memory_forest_bin),
+        )
+
+    def apply_memory_forest_result(self, packet_path: Path, result_path: Path):
+        return apply_memory_forest_result(
+            packet_path,
+            result_path,
+            self.model_daily,
+            self.model_state,
+            self.memory_forest,
+            str(self.memory_forest_bin),
+        )
 
     def test_initial_ingestion_is_bounded_and_repeatable(self) -> None:
         first = ingest(self.sources, self.state, self.istm, max_message_chars=64)
@@ -193,7 +298,7 @@ class PipelineTests(unittest.TestCase):
         self.write_json(result_path, candidate)
         validated_packet, _ = validate_result(packet_path, result_path)
         self.assertEqual(validated_packet["packet_sha256"], packet["packet_sha256"])
-        applied = apply_daily_result(
+        applied = self.apply_daily(
             packet_path,
             result_path,
             self.istm,
@@ -206,8 +311,44 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(len(daily_json["entries"]), 1)
         self.assertEqual(len(daily_json["entries"][0]["entry_id"]), 64)
         self.assertNotIn("rollout.jsonl", applied.paths[1].read_text(encoding="utf-8"))
+        self.assertTrue((self.memory_forest / "05 daily" / "2026-07-24.md").is_file())
+        marker = json.loads(applied.paths[2].read_text(encoding="utf-8"))
+        self.assertEqual(
+            set(marker["memory_forest"]),
+            {
+                "operation",
+                "forest_id",
+                "transaction_id",
+                "receipt",
+                "receipt_sha256",
+                "plan_sha256",
+            },
+        )
+        first_trace = json.loads(
+            self.memory_forest_trace.read_text(encoding="utf-8").splitlines()[0]
+        )
+        self.assertEqual(first_trace["operation"], "apply-daily")
+        self.assertEqual(
+            set(first_trace["plan"]),
+            {
+                "schema_version",
+                "forest_id",
+                "transaction_id",
+                "date",
+                "entries",
+                "provenance",
+            },
+        )
+        self.assertEqual(
+            set(first_trace["plan"]["provenance"]),
+            {"packet_sha256", "result_sha256", "batch_id"},
+        )
+        self.assertEqual(
+            set(first_trace["plan"]["entries"][0]),
+            {"entry_id", "source_record_ids", "summary"},
+        )
         self.assertTrue(
-            apply_daily_result(
+            self.apply_daily(
                 packet_path,
                 result_path,
                 self.istm,
@@ -220,7 +361,7 @@ class PipelineTests(unittest.TestCase):
         self.write_json(self.root / "incomplete-result.json", candidate)
         before = daily_json_path.read_bytes()
         with self.assertRaises(ISTMError):
-            apply_daily_result(
+            self.apply_daily(
                 packet_path,
                 self.root / "incomplete-result.json",
                 self.istm,
@@ -229,18 +370,18 @@ class PipelineTests(unittest.TestCase):
             )
         self.assertEqual(daily_json_path.read_bytes(), before)
 
-    def test_structured_candidate_applies_immutable_safe_cards_and_marker(self) -> None:
+    def test_structured_candidate_promotes_through_memory_forest_cli_only(self) -> None:
         packet_path, packet = self.daily_packet()
         daily_result_path = default_result_path(packet_path)
         self.write_json(daily_result_path, self.valid_daily_result(packet))
-        apply_daily_result(
+        self.apply_daily(
             packet_path,
             daily_result_path,
             self.istm,
             self.model_state,
             self.model_daily,
         )
-        structured_packet = prepare_structured_packet(
+        structured_packet = prepare_memory_forest_packet(
             date(2026, 7, 24),
             self.model_daily,
             self.packets,
@@ -252,8 +393,8 @@ class PipelineTests(unittest.TestCase):
         structured_value = json.loads(structured_packet.path.read_text(encoding="utf-8"))
         entry_id = structured_value["items"][0]["daily_entry_id"]
         result = {
-            "schema_version": "codex-istm-model-result-v1",
-            "stage": "daily_to_structured",
+            "schema_version": "codex-istm-model-result-v2",
+            "stage": "daily_to_memory_forest",
             "packet_sha256": structured_value["packet_sha256"],
             "producer": {
                 "kind": "codex_cli",
@@ -265,6 +406,13 @@ class PipelineTests(unittest.TestCase):
             "promotions": [
                 {
                     "source_daily_entry_ids": [entry_id],
+                    "route": {
+                        "domain": "memory-systems",
+                        "domain_title": "Memory systems",
+                        "branch": "deterministic-apply",
+                        "branch_title": "Deterministic apply",
+                        "leaf": "model-output-gate",
+                    },
                     "title": "Keep model output behind a deterministic apply gate",
                     "content": "Freeze bounded source packets and validate exact result bindings before applying memory.",
                     "confidence": "high",
@@ -274,70 +422,509 @@ class PipelineTests(unittest.TestCase):
         }
         result_path = default_result_path(structured_packet.path)
         self.write_json(result_path, result)
-        memory_id = sha256_bytes(
-            _canonical_json(
-                {
-                    "packet_sha256": structured_value["packet_sha256"],
-                    "promotion": result["promotions"][0],
-                }
-            )
-        )
-        conflicting_card = (
-            self.structured
-            / "stm"
-            / "2026-07-24"
-            / f"{memory_id}.md"
-        )
-        conflicting_card.parent.mkdir(parents=True)
-        conflicting_card.write_text("conflict\n", encoding="utf-8")
-        with self.assertRaises(ISTMError):
-            apply_structured_result(
-                structured_packet.path,
-                result_path,
-                self.model_daily,
-                self.model_state,
-                self.structured,
-            )
-        result_sha256 = sha256_bytes(_canonical_json(result))
-        self.assertFalse(
-            (self.structured / ".applied" / f"{result_sha256}.json").exists()
-        )
-        conflicting_card.unlink()
-        applied = apply_structured_result(
+        applied = self.apply_memory_forest_result(
             structured_packet.path,
             result_path,
-            self.model_daily,
-            self.model_state,
-            self.structured,
         )
         self.assertFalse(applied.already_applied)
-        card_paths = [path for path in applied.paths if path.suffix == ".md"]
-        self.assertEqual(len(card_paths), 1)
-        self.assertEqual(
-            card_paths[0].relative_to(self.structured).parts[:3],
-            ("stm", "2026-07-24", card_paths[0].name),
-        )
-        self.assertTrue(applied.paths[-1].is_file())
+        self.assertEqual(len(applied.paths), 1)
+        self.assertTrue(applied.paths[0].is_file())
+        self.assertFalse((self.root / "structured").exists())
         self.assertTrue(
-            apply_structured_result(
+            (
+                self.memory_forest
+                / "04 stm"
+                / "memory-systems"
+                / "deterministic-apply"
+                / "model-output-gate.md"
+            ).is_file()
+        )
+        traces = [
+            json.loads(line)
+            for line in self.memory_forest_trace.read_text(encoding="utf-8").splitlines()
+        ]
+        promotion_plan = traces[-1]["plan"]
+        self.assertEqual(traces[-1]["operation"], "promote")
+        self.assertEqual(
+            set(promotion_plan),
+            {
+                "schema_version",
+                "forest_id",
+                "transaction_id",
+                "date",
+                "promotions",
+                "provenance",
+            },
+        )
+        self.assertEqual(
+            set(promotion_plan["provenance"]),
+            {"packet_sha256", "result_sha256", "daily_commit_sha256s"},
+        )
+        self.assertEqual(
+            set(promotion_plan["promotions"][0]),
+            {"source_daily_entry_ids", "route", "title", "content", "confidence"},
+        )
+        self.assertEqual(
+            set(promotion_plan["promotions"][0]["route"]),
+            {"domain", "domain_title", "branch", "branch_title", "leaf"},
+        )
+        self.assertEqual(
+            promotion_plan["provenance"]["daily_commit_sha256s"],
+            [structured_value["items"][0]["daily_result_sha256"]],
+        )
+        self.assertNotEqual(
+            promotion_plan["provenance"]["daily_commit_sha256s"],
+            structured_value["source"]["commits"],
+        )
+        self.assertTrue(
+            self.apply_memory_forest_result(
                 structured_packet.path,
                 result_path,
-                self.model_daily,
-                self.model_state,
-                self.structured,
             ).already_applied
         )
 
         result["promotions"][0]["path"] = "../escape"
         self.write_json(self.root / "unsafe-structured.json", result)
         with self.assertRaises(ISTMError):
-            apply_structured_result(
+            self.apply_memory_forest_result(
                 structured_packet.path,
                 self.root / "unsafe-structured.json",
-                self.model_daily,
-                self.model_state,
-                self.structured,
             )
+
+    def test_structured_validation_matches_memory_forest_parent_title_contract(self) -> None:
+        packet_path, packet = self.daily_packet()
+        items = packet["items"]
+        assert isinstance(items, list) and len(items) >= 2
+        daily_result = self.valid_daily_result(packet)
+        daily_result["entries"] = [
+            {
+                "source_record_ids": [item["record_id"]],
+                "summary": f"Synthetic bounded summary {index}.",
+            }
+            for index, item in enumerate(items[:2], start=1)
+        ]
+        daily_result["omitted"] = [
+            {"record_id": item["record_id"], "reason": "low_signal"}
+            for item in items[2:]
+        ]
+        daily_result_path = default_result_path(packet_path)
+        self.write_json(daily_result_path, daily_result)
+        self.apply_daily(packet_path, daily_result_path)
+        prepared = prepare_memory_forest_packet(
+            date(2026, 7, 24),
+            self.model_daily,
+            self.packets,
+            self.model_state,
+        )
+        prepared_value = json.loads(prepared.path.read_text(encoding="utf-8"))
+        daily_entries = prepared_value["items"]
+        assert isinstance(daily_entries, list) and len(daily_entries) == 2
+        result = {
+            "schema_version": "codex-istm-model-result-v2",
+            "stage": "daily_to_memory_forest",
+            "packet_sha256": prepared_value["packet_sha256"],
+            "producer": {
+                "kind": "codex_cli",
+                "codex_cli_version": "codex-cli test",
+                "model": "example-model",
+                "reasoning_effort": "xhigh",
+                "isolation_profile": "codex-cli-no-tools-v1",
+            },
+            "promotions": [
+                {
+                    "source_daily_entry_ids": [item["daily_entry_id"]],
+                    "route": {
+                        "domain": "memory-systems",
+                        "domain_title": domain_title,
+                        "branch": f"branch-{index}",
+                        "branch_title": f"Branch {index}",
+                        "leaf": f"leaf-{index}",
+                    },
+                    "title": f"Synthetic promotion {index}",
+                    "content": "A bounded synthetic promotion.",
+                    "confidence": "high",
+                }
+                for index, (item, domain_title) in enumerate(
+                    zip(daily_entries, ("Memory systems", "Conflicting title")),
+                    start=1,
+                )
+            ],
+            "omitted": [],
+        }
+        result_path = default_result_path(prepared.path)
+        self.write_json(result_path, result)
+        with self.assertRaisesRegex(ISTMError, "conflicting titles"):
+            validate_result(prepared.path, result_path)
+        result["promotions"][1]["route"]["domain_title"] = "Memory systems"
+        result["promotions"][1]["route"]["branch_title"] = "Bad\tTitle"
+        self.write_json(result_path, result)
+        with self.assertRaisesRegex(ISTMError, "unsafe target"):
+            validate_result(prepared.path, result_path)
+
+    def test_daily_crash_after_receipt_recovers_without_reapplying_content(self) -> None:
+        packet_path, packet = self.daily_packet()
+        result_path = default_result_path(packet_path)
+        self.write_json(result_path, self.valid_daily_result(packet))
+        original_save = model_workflow._save_model_state
+        save_calls = 0
+
+        def crash_on_cursor_save(path, state):
+            nonlocal save_calls
+            save_calls += 1
+            if save_calls == 2:
+                raise OSError("synthetic crash")
+            original_save(path, state)
+
+        with patch.object(
+            model_workflow,
+            "_save_model_state",
+            side_effect=crash_on_cursor_save,
+        ):
+            with self.assertRaises(OSError):
+                self.apply_daily(packet_path, result_path)
+        state = json.loads(self.model_state.read_text(encoding="utf-8"))
+        self.assertRegex(state["memory_forest_root_sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(state["memory_forest_id"], self.forest_id)
+        self.assertEqual(state["daily"], {})
+        self.assertTrue((self.memory_forest / "05 daily" / "2026-07-24.md").is_file())
+        marker_paths = list((self.model_daily / "2026-07-24" / "commits").glob("*.json"))
+        self.assertEqual(len(marker_paths), 1)
+        other_forest = self.root / "other-memory-forest"
+        other_forest.mkdir()
+        with self.assertRaises(ISTMError):
+            apply_daily_result(
+                packet_path,
+                result_path,
+                self.istm,
+                self.model_state,
+                self.model_daily,
+                other_forest,
+                str(self.memory_forest_bin),
+            )
+        self.assertFalse((other_forest / "05 daily" / "2026-07-24.md").exists())
+        recovered = self.apply_daily(packet_path, result_path)
+        self.assertTrue(recovered.already_applied)
+        state = json.loads(self.model_state.read_text(encoding="utf-8"))
+        self.assertEqual(state["schema_version"], "codex-istm-model-state-v2")
+        self.assertEqual(len(state["daily"]["2026-07-24"]["applied_batches"]), 1)
+
+    def test_same_path_replacement_with_new_forest_identity_is_rejected(self) -> None:
+        packet_path, packet = self.daily_packet()
+        result_path = default_result_path(packet_path)
+        self.write_json(result_path, self.valid_daily_result(packet))
+        self.apply_daily(packet_path, result_path)
+        config_path = self.memory_forest / ".memory-forest" / "forest.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["forest_id"] = "e" * 32
+        config_path.write_text(
+            json.dumps(config, sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        config_path.chmod(0o600)
+        with self.assertRaisesRegex(ISTMError, "different Memory Forest identity"):
+            self.apply_daily(packet_path, result_path)
+        state = json.loads(self.model_state.read_text(encoding="utf-8"))
+        self.assertEqual(state["memory_forest_id"], self.forest_id)
+
+    def test_stdout_leakage_fails_before_marker_and_recovers_idempotently(self) -> None:
+        packet_path, packet = self.daily_packet()
+        result_path = default_result_path(packet_path)
+        self.write_json(result_path, self.valid_daily_result(packet))
+        leaking = self.root / "leaking-memory-forest"
+        leaking.write_text(
+            "#!/usr/bin/env python3\n"
+            "import subprocess, sys\n"
+            f"completed = subprocess.run([{str(self.memory_forest_bin)!r}, *sys.argv[1:]], "
+            "capture_output=True, check=False)\n"
+            "sys.stdout.buffer.write(b'leaked-log\\n' + completed.stdout)\n"
+            "raise SystemExit(completed.returncode)\n",
+            encoding="utf-8",
+        )
+        leaking.chmod(0o700)
+        with self.assertRaises(ISTMError):
+            apply_daily_result(
+                packet_path,
+                result_path,
+                self.istm,
+                self.model_state,
+                self.model_daily,
+                self.memory_forest,
+                str(leaking),
+            )
+        state = json.loads(self.model_state.read_text(encoding="utf-8"))
+        self.assertRegex(state["memory_forest_root_sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(state["memory_forest_id"], self.forest_id)
+        self.assertEqual(state["daily"], {})
+        self.assertEqual(
+            list((self.model_daily / "2026-07-24" / "commits").glob("*.json")),
+            [],
+        )
+        self.assertTrue(self.apply_daily(packet_path, result_path).already_applied)
+
+    def test_memory_forest_exec_oserror_fails_closed(self) -> None:
+        packet_path, packet = self.daily_packet()
+        result_path = default_result_path(packet_path)
+        self.write_json(result_path, self.valid_daily_result(packet))
+        with patch.object(
+            model_workflow.subprocess,
+            "run",
+            side_effect=OSError("synthetic exec failure"),
+        ):
+            with self.assertRaisesRegex(ISTMError, "could not be started"):
+                self.apply_daily(packet_path, result_path)
+        state = json.loads(self.model_state.read_text(encoding="utf-8"))
+        self.assertRegex(state["memory_forest_root_sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(state["memory_forest_id"], self.forest_id)
+        self.assertEqual(state["daily"], {})
+        self.assertEqual(
+            list((self.model_daily / "2026-07-24" / "commits").glob("*.json")),
+            [],
+        )
+
+    def test_memory_forest_stdout_and_receipt_boundaries_fail_closed(self) -> None:
+        stdout_path = self.root / "stdout.json"
+        stdout_path.write_bytes(b'{"ok":true,"ok":true}\n')
+        with self.assertRaises(ISTMError):
+            model_workflow._read_memory_forest_stdout(stdout_path)
+        stdout_path.write_bytes(b'{"ok":true}\n{"ok":true}\n')
+        with self.assertRaises(ISTMError):
+            model_workflow._read_memory_forest_stdout(stdout_path)
+        stdout_path.write_bytes(
+            b"x" * (model_workflow.MAX_MEMORY_FOREST_RECEIPT_BYTES + 1)
+        )
+        with self.assertRaises(ISTMError):
+            model_workflow._read_memory_forest_stdout(stdout_path)
+
+        transaction_id = "a" * 64
+        response = {
+            "schema_version": 1,
+            "forest_id": self.forest_id,
+            "ok": True,
+            "operation": "apply-daily",
+            "transaction_id": transaction_id,
+            "already_applied": False,
+            "receipt": f".memory-forest/receipts/{transaction_id}.json",
+            "receipt_sha256": "b" * 64,
+            "touched": [],
+        }
+        with self.assertRaises(ISTMError):
+            model_workflow._validate_memory_forest_response(
+                {**response, "extra": True},
+                "apply-daily",
+                transaction_id,
+                self.forest_id,
+            )
+        receipt_path = (
+            self.memory_forest
+            / ".memory-forest"
+            / "receipts"
+            / f"{transaction_id}.json"
+        )
+        receipt_path.parent.mkdir(parents=True)
+        target = self.root / "outside-receipt.json"
+        target.write_text(
+            json.dumps(
+                {
+                    "ok": True,
+                    "operation": "apply-daily",
+                    "transaction_id": transaction_id,
+                }
+            ),
+            encoding="utf-8",
+        )
+        receipt_path.symlink_to(target)
+        with self.assertRaises(ISTMError):
+            model_workflow._verify_memory_forest_receipt_file(
+                self.memory_forest,
+                response,
+                "apply-daily",
+                transaction_id,
+                "c" * 64,
+                "2026-07-24",
+                self.forest_id,
+            )
+        receipt_path.unlink()
+        receipt_path.write_bytes(target.read_bytes())
+        with self.assertRaises(ISTMError):
+            model_workflow._verify_memory_forest_receipt_file(
+                self.memory_forest,
+                response,
+                "apply-daily",
+                transaction_id,
+                "c" * 64,
+                "2026-07-24",
+                self.forest_id,
+            )
+
+        valid_receipt = {
+            "audit": {
+                "documents": 0,
+                "errors": False,
+                "links": 0,
+                "ok": True,
+                "warnings": 0,
+            },
+            "date": "2026-07-24",
+            "forest_id": self.forest_id,
+            "index": {
+                "bytes_indexed": 0,
+                "documents": 0,
+                "index": ".memory-forest/index.sqlite3",
+            },
+            "ok": True,
+            "operation": "apply-daily",
+            "plan_sha256": "c" * 64,
+            "schema_version": "memory-forest-write-receipt-v1",
+            "touched": [],
+            "transaction_id": transaction_id,
+            "validation": {
+                "documents": 0,
+                "errors": 0,
+                "ok": True,
+                "warnings": 0,
+            },
+        }
+        receipt_path.write_bytes(model_workflow._memory_forest_plan_bytes(valid_receipt))
+        response["receipt_sha256"] = sha256_bytes(receipt_path.read_bytes())
+        with self.assertRaises(ISTMError):
+            model_workflow._verify_memory_forest_receipt_file(
+                self.memory_forest,
+                response,
+                "apply-daily",
+                transaction_id,
+                "c" * 64,
+                "2026-07-24",
+                self.forest_id,
+            )
+
+    def test_all_omitted_daily_closes_with_verified_noop_receipt(self) -> None:
+        packet_path, packet = self.daily_packet()
+        result = self.valid_daily_result(packet)
+        items = packet["items"]
+        assert isinstance(items, list)
+        result["entries"] = []
+        result["omitted"] = [
+            {"record_id": item["record_id"], "reason": "low_signal"}
+            for item in items
+        ]
+        result_path = default_result_path(packet_path)
+        self.write_json(result_path, result)
+        first = self.apply_daily(packet_path, result_path)
+        self.assertFalse(first.already_applied)
+        traces = [
+            json.loads(line)
+            for line in self.memory_forest_trace.read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(traces[-1]["operation"], "apply-daily")
+        self.assertEqual(traces[-1]["plan"]["entries"], [])
+        self.assertTrue(self.apply_daily(packet_path, result_path).already_applied)
+        with self.assertRaises(NoWorkError):
+            prepare_daily_packet(
+                date(2026, 7, 24),
+                self.istm,
+                self.packets,
+                self.model_state,
+            )
+
+    def test_all_omitted_promotion_closes_with_verified_noop_receipt(self) -> None:
+        packet_path, packet = self.daily_packet()
+        daily_result_path = default_result_path(packet_path)
+        self.write_json(daily_result_path, self.valid_daily_result(packet))
+        self.apply_daily(packet_path, daily_result_path)
+        prepared = prepare_memory_forest_packet(
+            date(2026, 7, 24),
+            self.model_daily,
+            self.packets,
+            self.model_state,
+        )
+        value = json.loads(prepared.path.read_text(encoding="utf-8"))
+        entry_ids = [item["daily_entry_id"] for item in value["items"]]
+        result = {
+            "schema_version": "codex-istm-model-result-v2",
+            "stage": "daily_to_memory_forest",
+            "packet_sha256": value["packet_sha256"],
+            "producer": {
+                "kind": "codex_cli",
+                "codex_cli_version": "codex-cli test",
+                "model": "example-model",
+                "reasoning_effort": "xhigh",
+                "isolation_profile": "codex-cli-no-tools-v1",
+            },
+            "promotions": [],
+            "omitted": [
+                {"daily_entry_id": entry_id, "reason": "not_durable"}
+                for entry_id in entry_ids
+            ],
+        }
+        result_path = default_result_path(prepared.path)
+        self.write_json(result_path, result)
+        first = self.apply_memory_forest_result(prepared.path, result_path)
+        self.assertFalse(first.already_applied)
+        self.assertTrue(first.paths[0].is_file())
+        self.assertTrue(
+            self.apply_memory_forest_result(prepared.path, result_path).already_applied
+        )
+        with self.assertRaises(NoWorkError):
+            prepare_memory_forest_packet(
+                date(2026, 7, 24),
+                self.model_daily,
+                self.packets,
+                self.model_state,
+            )
+
+    def test_legacy_v1_model_state_and_structured_result_fail_closed(self) -> None:
+        self.write_json(
+            self.model_state,
+            {
+                "schema_version": "codex-istm-model-state-v1",
+                "daily": {},
+                "structured": {},
+            },
+        )
+        ingest(self.sources, self.state, self.istm)
+        with self.assertRaises(ISTMError):
+            prepare_daily_packet(
+                date(2026, 7, 24),
+                self.istm,
+                self.packets,
+                self.model_state,
+            )
+        self.model_state.unlink()
+        daily_packet = prepare_daily_packet(
+            date(2026, 7, 24),
+            self.istm,
+            self.packets,
+            self.model_state,
+        )
+        daily_value = json.loads(daily_packet.path.read_text(encoding="utf-8"))
+        daily_result_path = default_result_path(daily_packet.path)
+        self.write_json(daily_result_path, self.valid_daily_result(daily_value))
+        self.apply_daily(daily_packet.path, daily_result_path)
+        memory_packet = prepare_memory_forest_packet(
+            date(2026, 7, 24),
+            self.model_daily,
+            self.packets,
+            self.model_state,
+        )
+        memory_value = json.loads(memory_packet.path.read_text(encoding="utf-8"))
+        legacy_result = {
+            "schema_version": "codex-istm-model-result-v1",
+            "stage": "daily_to_structured",
+            "packet_sha256": memory_value["packet_sha256"],
+            "producer": {
+                "kind": "codex_cli",
+                "codex_cli_version": "codex-cli test",
+                "model": "example-model",
+                "reasoning_effort": "xhigh",
+                "isolation_profile": "codex-cli-no-tools-v1",
+            },
+            "promotions": [],
+            "omitted": [],
+        }
+        legacy_result_path = self.root / "legacy.result.json"
+        self.write_json(legacy_result_path, legacy_result)
+        with self.assertRaises(ISTMError):
+            validate_result(memory_packet.path, legacy_result_path)
 
     def test_codex_runner_is_ephemeral_read_only_and_validates_before_persisting(self) -> None:
         packet_path, packet = self.daily_packet()
@@ -400,7 +987,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(first.not_yet_admitted_items, 1)
         first_result = default_result_path(first.path)
         self.write_json(first_result, self.valid_daily_result(first_packet))
-        apply_daily_result(
+        self.apply_daily(
             first.path,
             first_result,
             self.istm,
@@ -421,7 +1008,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(second.not_yet_admitted_items, 0)
         second_result = default_result_path(second.path)
         self.write_json(second_result, self.valid_daily_result(second_packet))
-        apply_daily_result(
+        self.apply_daily(
             second.path,
             second_result,
             self.istm,
@@ -446,7 +1033,7 @@ class PipelineTests(unittest.TestCase):
         raw = self.istm.read_bytes()
         self.istm.write_bytes(raw.replace(b"local-only", b"LOCAL-ONLY", 1))
         with self.assertRaises(ISTMError):
-            apply_daily_result(
+            self.apply_daily(
                 packet_path,
                 result_path,
                 self.istm,
@@ -463,7 +1050,7 @@ class PipelineTests(unittest.TestCase):
         markdown_target.parent.mkdir(parents=True)
         markdown_target.write_text("conflict\n", encoding="utf-8")
         with self.assertRaises(ISTMError):
-            apply_daily_result(
+            self.apply_daily(
                 packet_path,
                 result_path,
                 self.istm,
@@ -482,7 +1069,7 @@ class PipelineTests(unittest.TestCase):
         )
         result_path = default_result_path(packet_path)
         self.write_json(result_path, candidate)
-        applied = apply_daily_result(
+        applied = self.apply_daily(
             packet_path,
             result_path,
             self.istm,
@@ -509,13 +1096,13 @@ class PipelineTests(unittest.TestCase):
         schema_root = files("codex_istm").joinpath("schemas")
         for name in (
             "istm-to-daily-result-v1.schema.json",
-            "daily-to-structured-result-v1.schema.json",
+            "daily-to-memory-forest-result-v2.schema.json",
         ):
             schema = json.loads(schema_root.joinpath(name).read_text(encoding="utf-8"))
             self.assertEqual(schema["type"], "object")
             self.assertFalse(schema["additionalProperties"])
 
-    def test_structured_apply_rejects_new_daily_commit_after_prepare(self) -> None:
+    def test_memory_forest_apply_rejects_new_daily_commit_after_prepare(self) -> None:
         ingest(self.sources, self.state, self.istm)
         first_daily = prepare_daily_packet(
             date(2026, 7, 24),
@@ -527,14 +1114,14 @@ class PipelineTests(unittest.TestCase):
         first_packet = json.loads(first_daily.path.read_text(encoding="utf-8"))
         first_result = default_result_path(first_daily.path)
         self.write_json(first_result, self.valid_daily_result(first_packet))
-        apply_daily_result(
+        self.apply_daily(
             first_daily.path,
             first_result,
             self.istm,
             self.model_state,
             self.model_daily,
         )
-        structured_packet = prepare_structured_packet(
+        structured_packet = prepare_memory_forest_packet(
             date(2026, 7, 24),
             self.model_daily,
             self.packets,
@@ -543,8 +1130,8 @@ class PipelineTests(unittest.TestCase):
         structured_value = json.loads(structured_packet.path.read_text(encoding="utf-8"))
         entry_id = structured_value["items"][0]["daily_entry_id"]
         structured_result = {
-            "schema_version": "codex-istm-model-result-v1",
-            "stage": "daily_to_structured",
+            "schema_version": "codex-istm-model-result-v2",
+            "stage": "daily_to_memory_forest",
             "packet_sha256": structured_value["packet_sha256"],
             "producer": {
                 "kind": "codex_cli",
@@ -574,7 +1161,7 @@ class PipelineTests(unittest.TestCase):
         second_packet = json.loads(second_daily.path.read_text(encoding="utf-8"))
         second_result = default_result_path(second_daily.path)
         self.write_json(second_result, self.valid_daily_result(second_packet))
-        apply_daily_result(
+        self.apply_daily(
             second_daily.path,
             second_result,
             self.istm,
@@ -582,11 +1169,8 @@ class PipelineTests(unittest.TestCase):
             self.model_daily,
         )
         with self.assertRaises(ISTMError):
-            apply_structured_result(
+            self.apply_memory_forest_result(
                 structured_packet.path,
                 structured_result_path,
-                self.model_daily,
-                self.model_state,
-                self.structured,
             )
-        self.assertFalse((self.structured / ".applied").exists())
+        self.assertFalse((self.root / "structured").exists())

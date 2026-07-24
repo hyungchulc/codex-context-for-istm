@@ -23,8 +23,10 @@
     <string>@DATA_DIR@/model-state.json</string>
     <string>--model-daily-dir</string>
     <string>@DATA_DIR@/model-daily</string>
-    <string>--structured-dir</string>
-    <string>@DATA_DIR@/structured</string>
+    <string>--memory-forest-root</string>
+    <string>@MEMORY_FOREST_ROOT@</string>
+    <string>--memory-forest-bin</string>
+    <string>@MEMORY_FOREST_BIN@</string>
     <string>--codex-bin</string>
     <string>@CODEX_BIN@</string>
     <string>--model</string>

@@ -4,12 +4,20 @@
 
 - Renamed the public product and repository to **Codex Context for ISTM** while preserving the existing Python distribution, CLI, schema, and LaunchAgent compatibility identifiers.
 
+## 0.3.0 — 2026-07-24
+
+- Replaced the companion-owned intermediate Structured output architecture with direct, receipt-verified `memory-forest --json apply-daily` and `memory-forest --json promote` transactions.
+- Added strict `daily_to_memory_forest` model-result v2 validation with bounded semantic routes and no model-selected paths, layers, operations, or Markdown.
+- Added exact Daily and promotion plan contracts, selected Daily-result provenance, strict one-object stdout validation, bounded on-disk receipt verification, and verified no-op transactions.
+- Added a Memory Forest root-bound model-state v2, cursor-last crash recovery, and fail-closed rejection of legacy v1 state and promotion results.
+- Updated CLI, LaunchAgent templates, packaged schemas, documentation, tests, and release audit for the canonical Memory Forest boundary.
+
 ## 0.2.0 — 2026-07-24
 
-- Added opt-in, existing-Codex-CLI ISTM-to-Daily and Daily-to-generated-STM workflows without a separately maintained provider API integration.
+- Added opt-in, existing-Codex-CLI ISTM-to-Daily and two-stage semantic memory workflows without a separately maintained provider API integration.
 - Added bounded content-addressed packets, packaged strict result schemas, explicit model/effort and Codex CLI provenance, exact disposition coverage, source rebinds, immutable result reuse, and fail-closed validation.
 - Added per-date admitted-item cursors and bounded multi-batch draining for same-day overflow and later arrivals.
-- Added marker-last, state-last Daily batch and generated STM writes with fixed deterministic paths, conflict preflight, private permissions, readback hashes, and idempotent recovery.
+- Added marker-last, state-last companion artifacts with fixed deterministic paths, conflict preflight, private permissions, readback hashes, and idempotent recovery.
 - Added no-tools runner hardening, inert Markdown rendering, model scheduling templates, architecture/format/privacy documentation, synthetic workflow tests, and expanded public-release audit coverage.
 
 ## 0.1.0 — 2026-07-24

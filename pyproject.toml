@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codex-istm-macos"
-version = "0.2.0"
+version = "0.3.0"
 description = "Codex Context for ISTM, a macOS-only local session context pipeline"
 readme = "README.md"
 requires-python = ">=3.11"

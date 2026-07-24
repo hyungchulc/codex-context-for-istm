@@ -21,7 +21,7 @@ from .core import (
     sha256_bytes,
 )
 from .model_workflow import (
-    DAILY_TO_STRUCTURED,
+    DAILY_TO_MEMORY_FOREST,
     ISTM_TO_DAILY,
     DEFAULT_PACKET_ITEM_BYTES,
     DEFAULT_PACKET_MAX_ITEMS,
@@ -30,7 +30,7 @@ from .model_workflow import (
     apply_model_result,
     default_result_path,
     prepare_daily_packet,
-    prepare_structured_packet,
+    prepare_memory_forest_packet,
     run_codex_model,
     validate_result,
 )
@@ -106,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_packet_bounds(prepare_daily)
     prepare_structured = subparsers.add_parser(
         "prepare-model-structured",
-        help="freeze a bounded Daily-to-Structured packet; this does not call a model",
+        help="freeze a bounded Daily-to-Memory-Forest packet; this does not call a model",
     )
     prepare_structured.add_argument("--date", default="today", help="ISO date, today, or previous-local-day")
     prepare_structured.add_argument("--timezone", default="UTC")
@@ -129,14 +129,15 @@ def build_parser() -> argparse.ArgumentParser:
     validate_model.add_argument("--result", type=Path, required=True)
     apply_model = subparsers.add_parser(
         "apply-model",
-        help="deterministically apply a validated candidate to local canonical output",
+        help="apply a validated candidate through the installed Memory Forest CLI",
     )
     apply_model.add_argument("--packet", type=Path, required=True)
     apply_model.add_argument("--result", type=Path, required=True)
     apply_model.add_argument("--istm", type=Path, default=default_data_dir() / "istm.jsonl")
     apply_model.add_argument("--model-state", type=Path, default=default_data_dir() / "model-state.json")
     apply_model.add_argument("--model-daily-dir", type=Path, default=default_data_dir() / "model-daily")
-    apply_model.add_argument("--structured-dir", type=Path, default=default_data_dir() / "structured")
+    apply_model.add_argument("--memory-forest-root", type=Path, required=True)
+    apply_model.add_argument("--memory-forest-bin", default="memory-forest")
     workflow = subparsers.add_parser(
         "run-model-workflow",
         help="prepare, run, validate, and apply one explicit model-assisted stage",
@@ -148,7 +149,8 @@ def build_parser() -> argparse.ArgumentParser:
     workflow.add_argument("--packet-dir", type=Path, default=default_data_dir() / "handoffs")
     workflow.add_argument("--model-state", type=Path, default=default_data_dir() / "model-state.json")
     workflow.add_argument("--model-daily-dir", type=Path, default=default_data_dir() / "model-daily")
-    workflow.add_argument("--structured-dir", type=Path, default=default_data_dir() / "structured")
+    workflow.add_argument("--memory-forest-root", type=Path, required=True)
+    workflow.add_argument("--memory-forest-bin", default="memory-forest")
     workflow.add_argument("--codex-bin", default="codex")
     workflow.add_argument("--model", required=True)
     workflow.add_argument("--reasoning-effort", required=True)
@@ -202,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "prepare-model-structured":
             selected_day = _resolve_day(args.date, args.timezone)
-            result = prepare_structured_packet(
+            result = prepare_memory_forest_packet(
                 selected_day,
                 args.model_daily_dir,
                 args.packet_dir,
@@ -213,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.total_text_bytes,
             )
             print(
-                f"packet={result.path} stage={DAILY_TO_STRUCTURED} items={result.items} "
+                f"packet={result.path} stage={DAILY_TO_MEMORY_FOREST} items={result.items} "
                 f"not_yet_admitted={result.not_yet_admitted_items} packet_sha256={result.packet_sha256}"
             )
         elif args.command == "run-model":
@@ -240,7 +242,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.istm,
                 args.model_state,
                 args.model_daily_dir,
-                args.structured_dir,
+                args.memory_forest_root,
+                args.memory_forest_bin,
             )
             print(f"applied={not applied.already_applied} paths={len(applied.paths)}")
             for path in applied.paths:
@@ -267,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
                             args.total_text_bytes,
                         )
                     else:
-                        packet = prepare_structured_packet(
+                        packet = prepare_memory_forest_packet(
                             selected_day,
                             args.model_daily_dir,
                             args.packet_dir,
@@ -305,7 +308,8 @@ def main(argv: list[str] | None = None) -> int:
                     args.istm,
                     args.model_state,
                     args.model_daily_dir,
-                    args.structured_dir,
+                    args.memory_forest_root,
+                    args.memory_forest_bin,
                 )
                 completed_batches += 1
                 last_packet = packet.path

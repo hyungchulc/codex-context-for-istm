@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "codex-istm Daily to Structured candidate",
+  "title": "codex-istm Daily to Memory Forest candidate",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -13,10 +13,10 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "codex-istm-model-result-v1"
+      "const": "codex-istm-model-result-v2"
     },
     "stage": {
-      "const": "daily_to_structured"
+      "const": "daily_to_memory_forest"
     },
     "packet_sha256": {
       "type": "string",
@@ -33,6 +33,7 @@
         "additionalProperties": false,
         "required": [
           "source_daily_entry_ids",
+          "route",
           "title",
           "content",
           "confidence"
@@ -46,6 +47,41 @@
             "items": {
               "type": "string",
               "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "route": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "domain",
+              "domain_title",
+              "branch",
+              "branch_title",
+              "leaf"
+            ],
+            "properties": {
+              "domain": {
+                "type": "string",
+                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+              },
+              "domain_title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "branch": {
+                "type": "string",
+                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+              },
+              "branch_title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "leaf": {
+                "type": "string",
+                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+              }
             }
           },
           "title": {

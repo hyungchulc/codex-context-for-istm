@@ -21,7 +21,7 @@ PRIVATE_ARTIFACT_SUFFIXES = {".packet.json", ".result.json"}
 PRIVATE_OUTPUT_ROOTS = {"handoffs", "model-daily", "structured"}
 RESULT_SCHEMAS = (
     "istm-to-daily-result-v1.schema.json",
-    "daily-to-structured-result-v1.schema.json",
+    "daily-to-memory-forest-result-v2.schema.json",
 )
 
 
@@ -65,6 +65,23 @@ def main() -> int:
             continue
         if schema.get("type") != "object" or schema.get("additionalProperties") is not False:
             findings.append(f"result schema is not closed at top level: codex_istm/schemas/{name}")
+        if name == "daily-to-memory-forest-result-v2.schema.json":
+            properties = schema.get("properties", {})
+            promotions = properties.get("promotions", {}).get("items", {})
+            route = promotions.get("properties", {}).get("route", {})
+            if (
+                properties.get("schema_version", {}).get("const")
+                != "codex-istm-model-result-v2"
+                or properties.get("stage", {}).get("const")
+                != "daily_to_memory_forest"
+                or promotions.get("additionalProperties") is not False
+                or route.get("additionalProperties") is not False
+                or set(route.get("required", []))
+                != {"domain", "domain_title", "branch", "branch_title", "leaf"}
+            ):
+                findings.append(
+                    "Memory Forest result schema does not freeze its v2 semantic route contract"
+                )
     if findings:
         print("public-release audit failed:", file=sys.stderr)
         print("\n".join(findings), file=sys.stderr)

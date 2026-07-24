@@ -7,112 +7,176 @@ Each line is a self-contained JSON object with `schema_version: 1`.
 | Field | Meaning |
 | --- | --- |
 | `transform_version` | Version of this conservative transformation. |
-| `record_id` | SHA-256 of the opaque source reference, byte span, and raw-event hash, used for exact replay protection. |
-| `captured_at` | The source event timestamp when it is a string; otherwise `null`. |
+| `record_id` | SHA-256 of the opaque source reference, byte span, and raw-event hash. |
+| `captured_at` | Source event timestamp when it is a string; otherwise `null`. |
 | `role` | Only `user` or `assistant`. |
 | `text` | Locally stored, per-message bounded text. |
 | `text_sha256` | SHA-256 of the stored bounded text. |
-| `provenance.source_ref` | First 16 hex characters of a SHA-256 source reference; not a path or session ID. |
-| `provenance.byte_start`, `provenance.byte_end` | Byte range of the raw event within its local source file. |
+| `provenance.source_ref` | First 16 hex characters of a hashed source reference. |
+| `provenance.byte_start`, `provenance.byte_end` | Raw-event byte range. |
 | `provenance.event_sha256` | SHA-256 of the raw JSONL event line. |
 
-Known user/assistant text is never coerced from arbitrary objects or tool payloads. Valid but non-conversational or unsupported events are counted in private ingestion state and command results, without copying source metadata or payloads to ISTM.
+Known conversation text is never coerced from arbitrary tool payloads. Valid
+unsupported events are counted in private state without copying their payloads
+into ISTM.
 
-## Private state
+## Deterministic Daily Markdown
 
-`state.json` has a schema version and a map of local relative source names. Each map entry contains:
-
-- `offset`: the count of source bytes that ended in complete newline-terminated JSONL events;
-- `processed_prefix_sha256`: a hash of bytes before that offset;
-- `observed_source_sha256`: a hash of the source bytes seen during the most recent run.
-
-The state also retains an ISTM byte checkpoint plus SHA-256. The prefix hash is the ingestion invariant. A later append changes the observed-source hash but leaves the processed-prefix hash valid. A rewrite of processed bytes fails closed. If a process stops after ISTM replacement but before the state checkpoint, the next run accepts only an exact source-derived replay before advancing state.
-
-## Daily Markdown
-
-Daily selection converts offset-bearing ISO timestamps into the requested IANA timezone (default `UTC`). Records are sorted by timestamp then record ID. Unparseable or timezone-naive timestamps do not render. The footer has a SHA-256 over selected record IDs and stored-text hashes, plus an omission count, so the file’s compact provenance can be checked without putting source names in the Markdown. Untrusted text is normalized, HTML-escaped, Markdown-escaped, and stripped of bidirectional controls before it is rendered.
-
-Daily files are deterministic for the same ISTM content and bounds. They are excerpts, not a machine-generated interpretation of a conversation.
+`digest` writes `daily/YYYY-MM-DD.md`. It is a bounded chronological rendering
+of ISTM, not a model summary. Its footer binds selection counts and hashes.
 
 ## Model packet v1
 
-A model packet is immutable, content-addressed JSON with
-`schema_version: codex-istm-model-packet-v1`. Both stages use a closed
-stage-specific shape:
+Packets use `schema_version: codex-istm-model-packet-v1` and one of two stages:
 
-- `stage`: `istm_to_daily` or `daily_to_structured`;
-- strict ISO `date` and IANA `timezone`;
-- `source`: exact ISTM prefix byte/hash binding or the complete ordered list of
-  committed Daily marker hashes;
-- `admission_cursor`: timezone, all already accounted item IDs, applied batch
-  IDs, and an exact cursor hash;
-- `policy`: deterministic policy, prompt, and packaged result-schema bindings;
-- `bounds`: maximum admitted items, per-item UTF-8 bytes, and total text bytes;
-- `items`: only the bounded text and opaque identities required for judgment;
-- `not_yet_admitted_item_count`: eligible items left for a later bounded batch;
-- `packet_sha256`: SHA-256 over canonical JSON excluding that field.
+- `istm_to_daily`;
+- `daily_to_memory_forest`.
 
-The packet contains no source path. `not_yet_admitted_item_count` is not a
-model decision. Model omissions appear only in the result and are marked
-accounted after verified apply.
+Every packet contains an ISO date, IANA timezone, exact source binding,
+admission cursor, policy/schema hashes, explicit bounds, bounded items,
+`not_yet_admitted_item_count`, and `packet_sha256`.
 
-## Model result v1
+Daily items contain exact ISTM record IDs and bounded text. Memory Forest items
+contain a Daily entry ID, the canonical Daily result SHA-256 that committed that
+entry, and a bounded summary. The packet source retains the complete ordered
+local Daily marker-hash list solely for freshness rebinding. Paths are never
+included.
 
-The installed Codex CLI is given one of the packaged JSON Schemas. A stored
-result has `schema_version: codex-istm-model-result-v1`, exact `stage` and
-`packet_sha256`, and producer provenance:
+## Model results
 
-- Codex CLI version;
-- explicit model identifier;
-- explicit reasoning effort;
-- isolation profile identifier.
+ISTM-to-Daily remains `codex-istm-model-result-v1`. It contains grouped
+`entries` with exact `source_record_ids` and `summary`, plus explicit omissions.
 
-Daily results contain grouped `entries` and explicit `omitted` record
-dispositions. Structured results contain bounded STM `promotions` and explicit
-`omitted` Daily-entry dispositions. Every admitted input ID must appear exactly
-once across those lists. Unknown, duplicated, or missing IDs fail validation.
+Daily-to-Memory-Forest is `codex-istm-model-result-v2` with stage
+`daily_to_memory_forest`. Each promotion contains exactly:
 
-The model returns semantic fields only. It cannot return a filesystem path,
-layer, cursor, commit marker, or state mutation.
+- `source_daily_entry_ids`;
+- `route` with `domain`, `domain_title`, `branch`, `branch_title`, and `leaf`;
+- `title`;
+- `content`;
+- `confidence`.
 
-## Model workflow state v1
+Route slugs are lowercase ASCII kebab-case. Titles are bounded single-line NFC
+text. Routes must be unique within a result. The result contains no filesystem
+path, layer, operation, Markdown, state change, or commit instruction. Every
+admitted input ID appears exactly once across the included/promoted and omitted
+lists. Unknown, repeated, or missing IDs fail validation.
 
-`model-state.json` has independent `daily` and `structured` maps keyed by ISO
-date. Each date stores:
+Both result versions include exact packet binding and producer provenance:
+Codex CLI version, explicit model, explicit reasoning effort, and isolation
+profile.
 
-- the fixed IANA timezone;
-- every input ID already accounted by a verified batch;
-- every applied batch/result ID.
+## Memory Forest Daily plan v1
 
-State advances after artifact readback and commit-marker creation. A crash
-before state mutation leaves inputs eligible for an exact retry. A state entry
-using another timezone fails closed.
+Daily apply writes a private temporary JSON object with fields exactly:
 
-## Committed model-Daily batch
-
-The machine-readable batch JSON has
-`schema_version: codex-istm-daily-memory-v1`. It binds the source ISTM prefix,
-packet, result, producer, admission cursor, generated entry IDs, explicit model
-omissions, and items left for the next batch.
-
-Daily JSON and inert Markdown are immutable files named by packet hash. A
-`codex-istm-applied-result-v1` marker binds both relative paths and byte hashes.
-Only a pair with a valid marker is committed output.
-
-## Generated STM card
-
-Structured apply renders model title/content into inert Markdown and chooses a
-fixed content-addressed path:
-
-```text
-structured/stm/YYYY-MM-DD/<memory-id>.md
+```json
+{
+  "schema_version": "memory-forest-daily-plan-v1",
+  "transaction_id": "<daily-batch-id>",
+  "date": "2026-07-24",
+  "entries": [
+    {
+      "entry_id": "<sha256>",
+      "source_record_ids": ["<sha256>"],
+      "summary": "Bounded semantic summary."
+    }
+  ],
+  "provenance": {
+    "packet_sha256": "<sha256>",
+    "result_sha256": "<sha256>",
+    "batch_id": "<daily-batch-id>"
+  }
+}
 ```
 
-The card records generated-STM namespace, date, confidence, opaque Daily entry
-references, memory ID, packet hash, and result hash. An apply marker binds every
-card path and hash. Result strings are never used as path components.
+Deterministic code passes that file to
+`memory-forest --json apply-daily ROOT PLAN`.
 
-These cards are the committed generated STM inbox owned by this companion
-utility and remain low-trust generated data. They are not canonical Memory
-Forest promotion. This format does not define another system's MTM/LTM/XLTM
-hierarchy.
+## Memory Forest promotion plan v1
+
+Promotion apply writes a private temporary JSON object with fields exactly:
+
+```json
+{
+  "schema_version": "memory-forest-promotion-plan-v1",
+  "transaction_id": "<model-result-sha256>",
+  "date": "2026-07-24",
+  "promotions": [
+    {
+      "source_daily_entry_ids": ["<sha256>"],
+      "route": {
+        "domain": "memory-systems",
+        "domain_title": "Memory systems",
+        "branch": "deterministic-apply",
+        "branch_title": "Deterministic apply",
+        "leaf": "model-output-gate"
+      },
+      "title": "Deterministic apply gate",
+      "content": "Validated semantic content.",
+      "confidence": "high"
+    }
+  ],
+  "provenance": {
+    "packet_sha256": "<sha256>",
+    "result_sha256": "<sha256>",
+    "daily_commit_sha256s": ["<daily-result-sha256>"]
+  }
+}
+```
+
+`daily_commit_sha256s` is the sorted unique set of committed Daily result hashes
+for actually promoted source IDs. The complete local marker list remains in the
+packet source and is not substituted into this field.
+
+## Writer response and receipt
+
+Writer stdout must be one bounded JSON object with fields exactly:
+
+- integer `schema_version: 1`;
+- `ok: true`;
+- `operation`: `apply-daily` or `promote`;
+- exact 64-lowerhex `transaction_id`;
+- Boolean `already_applied`;
+- exact relative receipt path
+  `.memory-forest/receipts/<transaction_id>.json`;
+- 64-lowerhex `receipt_sha256`;
+- sorted unique bounded canonical relative `touched` paths.
+
+Nonzero exit, extra stdout, missing or extra response fields, path mismatch,
+symlink, missing receipt, hash mismatch, or mismatched receipt operation and
+transaction fails before cursor advance. Empty plans are valid receipt-backed
+no-ops. Their first receipt has `already_applied: false`; an exact retry has
+`already_applied: true`.
+
+## Local handoff evidence and commit marker
+
+Model-Daily JSON and inert Markdown are immutable handoff evidence under:
+
+```text
+model-daily/YYYY-MM-DD/
+  batches/<packet-sha256>.json
+  batches/<packet-sha256>.md
+  commits/<batch-id>.json
+```
+
+The v2 Daily commit marker is written only after `apply-daily` receipt
+verification. It binds JSON, Markdown, exact plan hash, transaction, receipt
+path, and receipt hash. Promotion preparation accepts only fully verified
+markers and referenced evidence. This package does not create a second
+structured-memory output tree.
+
+## Model workflow state v2
+
+`model-state.json` has:
+
+- `schema_version: codex-istm-model-state-v2`;
+- `memory_forest_root_sha256`, binding one real Forest root;
+- `memory_forest_id`, binding the stable private identity of that Forest;
+- independent `daily` and `memory_forest` maps keyed by ISO date.
+
+Each date stores its timezone, every input ID accounted by verified writer
+transactions, and applied transaction IDs. The root and identity binding is durably saved
+before the first writer invocation; each per-date cursor advances only after its
+receipt verifies. Legacy v1 state fails closed because its old structured cursor
+cannot prove canonical promotion.

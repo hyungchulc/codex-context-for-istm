@@ -8,38 +8,65 @@ local Codex rollout JSONL
   -> append-only ISTM JSONL + prefix checkpoint
   -> bounded ISTM-to-Daily packet
   -> Codex/GPT candidate
-  -> deterministic validate/rebind/apply
-  -> committed model-Daily batches + admitted-item cursor
-  -> bounded Daily-to-Structured packet
-  -> Codex/GPT candidate
-  -> deterministic validate/rebind/apply
-  -> committed generated STM cards + admitted-item cursor
+  -> deterministic validate + ISTM rebind
+  -> immutable local JSON/Markdown handoff evidence
+  -> memory-forest --json apply-daily ROOT PLAN
+  -> verified canonical Daily receipt
+  -> Daily commit marker + Daily cursor
+  -> bounded daily_to_memory_forest packet
+  -> Codex/GPT candidate with semantic route only
+  -> deterministic validate + exact Daily commit rebind
+  -> memory-forest --json promote ROOT PLAN
+  -> verified canonical promotion receipt
+  -> memory_forest cursor
 ```
 
-Ingestion remains deterministic and provider-independent. Both mutating memory transitions require semantic model judgment in the full workflow. The model only returns a candidate; deterministic code owns source admission, path resolution, publication, verification, and cursor mutation.
+Ingestion remains deterministic and provider-independent. The model returns a
+candidate only. Deterministic code owns source admission, exact provenance,
+plan construction, invocation, receipt verification, and cursor mutation.
+Memory Forest alone owns canonical paths, hierarchy materialization, validation,
+audit, indexing, and idempotent writer receipts.
 
 ## Transaction model
 
-Packets are content-addressed immutable JSON. They bind a stage, strict policy and result-schema hashes, ISO date, IANA timezone, source snapshot, per-date admission cursor, item bounds, exact identities, and a count of items left for a later batch.
+Packets are content-addressed immutable JSON. They bind a stage, policy and
+result-schema hashes, ISO date, IANA timezone, source snapshot, per-date
+admission cursor, item bounds, exact identities, and the count left for a later
+batch. Results are immutable JSON bound to one packet. Every admitted ID must
+appear exactly once in an included/promoted group or an explicit omission.
 
-Results are immutable JSON bound to one packet. Cross-object validation requires every admitted item to appear exactly once: either in an included/promoted group or an explicit omission. JSON Schema alone does not enforce this, so Python validation repeats it before apply.
+Daily apply is evidence-first, receipt-before-commit, and cursor-last:
 
-Apply is marker-last and state-last:
+1. lock the workflow state and verify the root and `forest_id` binding and packet cursor;
+2. rebind the exact ISTM prefix;
+3. create or adopt immutable local JSON/Markdown handoff evidence;
+4. durably establish the root and identity binding if this is the state's first transaction;
+5. build the exact `memory-forest-daily-plan-v1` in a private temporary file;
+6. invoke `memory-forest --json apply-daily ROOT PLAN`;
+7. validate the one-object response, receipt path, receipt bytes, hash,
+   operation, and transaction;
+8. create the Daily commit marker that binds evidence, plan, and receipt;
+9. advance the Daily cursor last.
 
-1. lock the workflow state;
-2. verify the packet's cursor is current;
-3. rebind the ISTM prefix or complete set of committed Daily source markers;
-4. compute every deterministic target and preflight all existing paths;
-5. create or adopt exact immutable artifact files;
-6. read back and hash the files;
-7. create the immutable commit/apply marker;
-8. advance the admitted-item cursor.
+Promotion apply is receipt-before-cursor:
 
-Readers should accept only artifacts named by a valid commit marker. An interrupted run can leave an uncommitted exact file, but cannot advance the cursor. Retry completes the same transaction or fails on conflict.
+1. lock the shared workflow state;
+2. fully reload and verify every committed Daily marker and referenced evidence;
+3. require the packet's complete ordered marker-hash set to remain exact;
+4. durably establish the root and identity binding if this is the state's first transaction;
+5. build `memory-forest-promotion-plan-v1` in a private temporary file;
+6. invoke `memory-forest --json promote ROOT PLAN`;
+7. verify the response and receipt file;
+8. advance the `memory_forest` cursor last.
 
-## Canonical output contracts
+The transaction ID is the Daily batch ID for `apply-daily` and the exact model
+result SHA-256 for `promote`. A timeout or nonzero exit never advances local
+state. Retrying the same plan is safe because the Memory Forest writer contract
+is idempotent and returns the existing matching receipt.
 
-Model-Daily is a sequence of committed batches under:
+## Output ownership
+
+Local model-Daily handoff evidence remains under:
 
 ```text
 model-daily/YYYY-MM-DD/
@@ -48,27 +75,47 @@ model-daily/YYYY-MM-DD/
   commits/<batch-id>.json
 ```
 
-The JSON batch is the machine-readable canonical record. Markdown is a deterministic inert rendering. The marker binds both hashes.
+These files preserve the frozen model judgment and exact source bindings for
+review and replay. They are not canonical Daily files. Canonical Daily and
+promoted structured memory are written only inside the configured Memory Forest
+root by its installed CLI. This package creates no `structured/` output tree.
 
-Public Structured output is deliberately adjacent and bounded:
+The `daily_to_memory_forest` result is schema v2. A promotion contains exact
+Daily entry IDs, `title`, `content`, `confidence`, and only this semantic route:
 
-```text
-structured/
-  stm/YYYY-MM-DD/<memory-id>.md
-  .applied/<result-sha256>.json
+```json
+{
+  "domain": "memory-systems",
+  "domain_title": "Memory systems",
+  "branch": "deterministic-apply",
+  "branch_title": "Deterministic apply",
+  "leaf": "model-output-gate"
+}
 ```
 
-This `generated-stm` namespace is the committed generated STM inbox owned by this companion utility. It is not canonical Memory Forest promotion and does not claim ownership of another memory system's STM/MTM/LTM/XLTM tree. The model cannot name a layer or path. This release does not automatically promote to MTM, LTM, or XLTM; integrating those layers requires a separate route contract and parent validation.
+The model cannot return a filesystem path, memory layer, operation, Markdown,
+commit marker, or cursor mutation. Route slugs are bounded lowercase kebab-case
+identifiers; deterministic code never treats model text as a path.
 
-Generated summaries and cards are low-trust data. They can be wrong or contain prompt-like text. They are never authority or executable instructions.
+## State and migration
 
-## Read-only retrieval boundary
-
-Daily and Structured apply are mutating pipelines after semantic judgment and validation. Retrieval is read-only: a retrieval implementation may inspect committed artifacts but must never create, update, promote, mark, or otherwise mutate canonical memory or workflow state. Retrieval is not implemented in this release.
+`codex-istm-model-state-v2` has `daily` and `memory_forest` cursors, a hash
+binding to one real Memory Forest root, and its stable private `forest_id`.
+Reusing that state against another root or a replacement forest at the same
+path fails closed. The binding is saved before the first writer invocation; per-date
+cursors remain receipt-verified and cursor-last. Legacy v1 state and
+`daily_to_structured` v1 results are rejected; they are never reinterpreted as
+proof of canonical Memory Forest completion.
 
 ## Failure boundaries
 
-- Source prefix rewrite, missing tracked source, stale cursor, changed Daily commit set, malformed packet/result, unknown/duplicate/missing disposition, oversized content, unsafe date/timezone, symlink, path conflict, or readback hash mismatch fails closed.
-- A later ISTM append does not invalidate a frozen prefix. It remains eligible in the next batch after the current packet commits.
-- A later committed Daily batch does invalidate an in-flight Structured packet, because its source commit set is an exact freshness binding.
-- No command deletes rollout history, ISTM, Daily, Structured, state, packet, result, marker, or archive data.
+- Source rewrite, stale cursor, changed Daily commit set, malformed packet or
+  result, unknown/duplicate/missing disposition, duplicate route, invalid slug,
+  symlink, root mismatch, nonzero writer exit, stdout leakage, malformed receipt,
+  receipt hash mismatch, or transaction mismatch fails closed.
+- A later ISTM append does not invalidate a frozen prefix. A later committed
+  Daily batch does invalidate an in-flight promotion packet.
+- All-omitted batches still invoke the writer and require a verified no-op
+  receipt before their cursor advances.
+- No command deletes rollout history, ISTM, handoffs, canonical memory, state,
+  receipts, or archives.

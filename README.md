@@ -7,7 +7,7 @@
 - a bounded ISTM JSONL ledger of user and assistant text records;
 - a bounded chronological Daily Markdown digest with deterministic provenance.
 
-An optional, explicit workflow uses the already installed Codex CLI to make semantic ISTM-to-Daily and Daily-to-Structured decisions. Deterministic code freezes bounded packets, validates strict candidates, applies committed model-Daily batches, and writes canonical generated STM cards. It does not require a separately maintained provider API key or SDK.
+An optional, explicit workflow uses the already installed Codex CLI to make semantic ISTM-to-Daily and Daily-to-Memory-Forest decisions. Deterministic code freezes bounded packets, validates strict candidates, and delegates canonical writes to a separately installed Memory Forest CLI. It does not require a separately maintained provider API key or SDK.
 
 It handles only local Codex/GPT conversation session history. It does not read Mail, Calendar, notifications, browsers, messages, or any cloud account.
 
@@ -19,7 +19,7 @@ The Python distribution, import package, compatibility CLI, stored schema identi
 
 ## Privacy and boundaries
 
-- Deterministic ingestion, digest, archive, prepare, validate, and apply steps are local and do not call a provider.
+- Deterministic ingestion, digest, archive, prepare, validate, and apply steps are local and do not call a provider. Model apply invokes the configured local `memory-forest` executable for canonical writes.
 - `run-model` and `run-model-workflow` are explicit exceptions: they invoke the installed Codex CLI and send the bounded packet to its configured model provider. No model workflow is enabled by the deterministic LaunchAgent.
 - The default source is `~/.codex/sessions`; the default output location is `~/Library/Application Support/CodexISTMMacOS`.
 - Session text can contain sensitive data. The tool preserves bounded local excerpts; it does not claim to redact secrets. Keep its data directory private and never commit or publish its output.
@@ -32,6 +32,7 @@ The Python distribution, import package, compatibility CLI, stored schema identi
 - macOS
 - Python 3.11 or newer
 - A local Codex rollout JSONL directory
+- A separately installed Memory Forest CLI for model apply
 
 No package installation is required when running from this checkout.
 
@@ -65,6 +66,8 @@ Choose one installed Codex/GPT model and use it for both stages:
 python3 -m codex_istm run-model-workflow daily \
   --date previous-local-day \
   --timezone Europe/Stockholm \
+  --memory-forest-root "$MEMORY_FOREST_ROOT" \
+  --memory-forest-bin memory-forest \
   --model "$MODEL_ID" \
   --reasoning-effort xhigh \
   --max-batches 8
@@ -72,12 +75,14 @@ python3 -m codex_istm run-model-workflow daily \
 python3 -m codex_istm run-model-workflow structured \
   --date previous-local-day \
   --timezone Europe/Stockholm \
+  --memory-forest-root "$MEMORY_FOREST_ROOT" \
+  --memory-forest-bin memory-forest \
   --model "$MODEL_ID" \
   --reasoning-effort xhigh \
   --max-batches 8
 ```
 
-The Daily and Structured apply phases are mutating after model judgment and validation. The model itself cannot choose paths or bypass the deterministic apply gate. Generated Structured output is deliberately limited to this companion's fixed STM inbox at `structured/stm/YYYY-MM-DD/`; it is not Memory Forest canonical promotion, and MTM/LTM/XLTM routing is not performed.
+The Daily and promotion apply phases are mutating after model judgment and validation. The model itself cannot choose filesystem paths, layers, operations, Markdown, or cursor changes. It may return only exact source IDs and a bounded semantic route. Daily apply calls `memory-forest --json apply-daily`; promotion apply calls `memory-forest --json promote`. Both bind local state to the real Memory Forest root and its stable private `forest_id` before first invocation, then verify the exact transaction response and receipt file before advancing a bound local cursor. The files beneath `model-daily/` are immutable handoff evidence, not a second canonical memory tree.
 
 Retrieval is a separate read-only concern and must never mutate canonical memory or workflow state. This release does not add a retrieval command.
 
@@ -158,8 +163,8 @@ The release audit checks tracked text for common private absolute-path, credenti
 ## Limitations
 
 - This is not an official Codex export API; rollout schemas are unsupported and may change. It supports only conservative message-event shapes covered by synthetic fixtures.
-- The deterministic Daily digest retains bounded excerpts. Optional model-Daily and generated STM are model-produced semantic memory and may be wrong.
+- The deterministic Daily digest retains bounded excerpts. Optional model-assisted Daily and promotion content may be wrong; Memory Forest promotion does not make a claim true.
 - It does not redact sensitive text, sync across devices, encrypt files, manage backups, or delete data.
 - The no-tools Codex runner reduces local side effects but does not make provider processing local or establish provider retention guarantees.
-- Generated Structured output stops at a fixed adjacent STM namespace. Automatic MTM/LTM/XLTM promotion and integration into another memory tree are out of scope.
+- Canonical layout, parent creation, validation, audit, indexing, and idempotent writer receipts are owned by the separately installed Memory Forest CLI contract.
 - A changed processed prefix requires deliberate operator recovery; the tool will not guess how to merge divergent history.
