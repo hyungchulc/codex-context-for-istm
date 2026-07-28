@@ -180,7 +180,7 @@ human review of generated artifacts, Git history, or release archives. Read
 - [Public-release audit](docs/PUBLIC_RELEASE_AUDIT.md)
 - [Changelog](CHANGELOG.md)
 - [Roadmap](ROADMAP.md)
-- [MIT license](LICENSE)
+- [GNU General Public License v3.0](LICENSE)
 
 ## Limitations
 
